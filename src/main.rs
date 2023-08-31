@@ -2,12 +2,17 @@
 
 extern crate sdl2;
 
+use rand::Rng;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::mouse::MouseButton;
 use sdl2::pixels::Color;
+use sdl2::rect::{Point, Rect};
+use sdl2::render::Canvas;
+use sdl2::video::Window;
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
 
 /// Contains position, velocity, weight, and has some useful methods
 struct Physics {
@@ -22,16 +27,48 @@ impl Physics {
     fn push() {
         todo!()
     }
+    
+    fn update(&mut self, delta: u128) {
+        self.x += self.xvel * (delta as f64 / 1_000_000.);
+        self.y += self.yvel * (delta as f64 / 1_000_000.);
+        self.xvel *= (-(delta as f64)/1_000_000.).exp();
+        self.yvel *= (-(delta as f64)/1_000_000.).exp();
+    }
 }
 
 /// Square, triangle, pentagon
 struct Shape {
     physics: Physics,
+    hp: u32
 }
 
 /// A tank. Player, bot, boss etc
 struct Tank {
     physics: Physics,
+    hp: u32
+
+}
+impl Tank {
+    fn render(&self, canvas: &mut Canvas<Window>, camera: &Camera) {
+        canvas.set_draw_color(Color::RGB(255, 255, 255));
+        // prototype, only draws one point instead of full tank
+        canvas.draw_rect(Rect::from_center((
+            (self.physics.x - camera.x) as i32,
+            (self.physics.y - camera.y) as i32),
+            10, 10
+        )).unwrap();
+    }
+}
+
+/// xy pos, zoom and target tank the camera follows(usally player tank).
+/// 
+/// TODO some camera settings, and following other things than tanks
+struct Camera {
+    x: f64,
+    y: f64,
+    /// Bigger value => things look bigger (basically scale)
+    zoom: f64,
+    target_tank: u128
 
 }
 
@@ -154,12 +191,26 @@ impl Map {
             bullets: HashMap::new(),
         }
     }
+
+    /// Updates the positions based on velocities of all objects, and slows down velocities by frincion/resistance
+    fn update_physics(&mut self, delta: u128) {
+        // mutable iterator over the physics' of all tanks, bullets and shapes
+        let combined_iter = self.tanks.iter_mut().map(|tank| &mut tank.1.physics)
+        .chain(self.bullets.iter_mut().map(|tank| &mut tank.1.physics))
+        .chain(self.shapes.iter_mut().map(|tank| &mut tank.physics));
+
+        for o in combined_iter {
+            o.update(delta);
+
+            println!("x: {}", o.x);
+        }
+    }
 }
 
 fn main() {
     // INIT
 
-    // initialize sld2 related things
+    // Initialize sld2 related things
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
     let window = video_subsystem
@@ -170,12 +221,42 @@ fn main() {
     let mut canvas = window.into_canvas().build().unwrap();
     let mut event_pump = sdl_context.event_pump().unwrap();
 
-    // initialize my own things
+    // Initialize other libraries. So far only the rand crate
+    let mut rng = rand::thread_rng();
+
+    // Initialize my own things
     let mut map = Map::new();
     let mut input = Input::init();
+    let playerid: u128 = rng.gen();
+    let mut camera = Camera {
+        x: 0.,
+        y: 0.,
+        zoom: 1.,
+        target_tank: playerid
+    };
+
+    // add player
+    map.tanks.insert(
+        playerid,
+        Tank {
+            physics: Physics {
+                x: 0.,
+                y: 0.,
+                xvel: 0.,
+                yvel: 0.,
+                weight: 100.,
+            },
+            hp: 100
+        }
+    );
+
+    let mut last_frame_start = Instant::now();
+    // How long the last frame took, in micros, 1 millisecond for the first frame
+    let mut delta = 1_000;
 
     'running: loop {
 
+        last_frame_start = Instant::now();
         input.refresh();
 
         for event in event_pump.poll_iter() {
@@ -220,14 +301,29 @@ fn main() {
             }
         }
 
-        println!("{:#?}", input.fire.is_down);
+        // PHYSICS
 
-        // Clear the screen with black color and render
+        // at the end of physics, update all physics
+        map.update_physics(delta);
+
+
+        // RENDER
+        
+        // Clear the screen with black color
         canvas.set_draw_color(Color::RGB(0, 0, 0));
         canvas.clear();
+
+
+        // Render all tanks
+        for tank in &map.tanks {
+            tank.1.render(&mut canvas, &mut camera);
+        }
+
         canvas.present();
 
         // Add a small delay to avoid using too much CPU
         ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
+
+        delta = Instant::now().duration_since(last_frame_start).as_micros();
     }
 }
