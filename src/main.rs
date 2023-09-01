@@ -2,7 +2,7 @@
 
 extern crate sdl2;
 
-use rand::Rng;
+use rand::{Rng, thread_rng};
 use sdl2::event::Event;
 use sdl2::image::{self, InitFlag, LoadTexture};
 use sdl2::keyboard::Keycode;
@@ -14,9 +14,22 @@ use sdl2::video::Window;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
+/// From A to B
+fn angle_diff(a: f64, b: f64) -> f64 {
+    let mut diff = b - a;
+    if diff > 180.0 {
+        diff -= 360.0;
+    } else if diff < -180.0 {
+        diff += 360.0;
+    }
+    diff
+}
 
 
 /// Contains position, velocity, weight, and has some useful methods
+/// 
+/// Clone needed for firing bullets, whuch first duplicate tank physics and then have a push applied
+#[derive(Debug, Clone, Copy)]
 struct Physics {
     x: f64,
     y: f64,
@@ -29,16 +42,22 @@ struct Physics {
     rotvel: f64,
 }
 impl Physics {
-    /// Applies a one time force in a specified direction, suddenly changing velocity. Has lower impact on heavier objects.
+    /// Applies a one time push in a specified direction, suddenly changing velocity. Has lower impact on heavier objects.
     fn push(&mut self, f: (f64, f64)) {
         self.xvel += f.0/self.weight;
         self.yvel += f.1/self.weight;
+    }
+
+    /// Applies a one time force push in a specified direction from -1 to 1, suddenly changing rotation velocity. Has lower impact on heavier objects.
+    fn push_rot(&mut self, f: f64) {
+        self.rotvel += f/self.weight;
     }
     
     fn update(&mut self, delta: u128) {
         self.x += self.xvel * (delta as f64 / 1_000_000.);
         self.y += self.yvel * (delta as f64 / 1_000_000.);
         self.rot += self.rotvel * (delta as f64 / 1_000_000.);
+        self.rot = self.rot%360.;
 
         self.xvel *= (-(delta as f64)/1_000_000.).exp();
         self.yvel *= (-(delta as f64)/1_000_000.).exp();
@@ -52,12 +71,62 @@ struct Shape {
     hp: u32
 }
 
+/// Turrets can now only shoot bullets, will change later
+struct Turret {
+    projectile_speed: f64,
+    projectile_weight: f64,
+    /// in micros, first shot is immediatae
+    reload_time: u128,
+    /// mean in degrees, gaussian propability distribution
+    inaccuracy: f64,
+    /// in degrees, turret facing relative to tank facing
+    relative_direction: f64,
+
+    // start of changing properties
+
+    time_to_next_shot: u128
+}
+impl Turret {
+    /// Returns an Option<Bullet> if fired, and None otherwise.
+    /// Tank physics can be physics of anything, theoretically allowing bullets of shapes to fire bullets too if they have a turret
+    fn fire(&mut self, tank_physics: &Physics, tank_id: u128) -> Option<Bullet> {
+        println!("{}", self.time_to_next_shot);
+        if self.time_to_next_shot > 0 {
+            None
+        } else {
+            // calculate bullet speed vector relative to tank
+            let fire_vector = (
+                self.projectile_speed*(self.relative_direction+tank_physics.rot).to_radians().sin(),
+                self.projectile_speed*(self.relative_direction+tank_physics.rot).to_radians().cos()
+            );
+
+            // duplicate tank physics
+            let mut bullet_physics = tank_physics.clone();
+
+            // set bullet weight and push it
+            bullet_physics.weight = self.projectile_weight;
+            bullet_physics.push(fire_vector);
+
+            self.time_to_next_shot = self.reload_time;
+
+            Some(Bullet {
+                physics: bullet_physics,
+                source_tank_id: tank_id
+            })
+        }
+    }
+}
+
 /// A tank. Player, bot, boss etc
 struct Tank {
     physics: Physics,
     hp: u32,
-    /// How much power the tank can allpy to it's movement. Will move faster with more power, but slower is it weights more.
+    /// How much power the tank can apply to it's movement. Will move faster with more power, but slower if it weights more.
     power: f64,
+    /// How much power the tank can apply to it's rotation movement. Will rotate faster with more power, but slower if it weights more.
+    rot_power: f64,
+    turrets: Vec<Turret>,
+    bullet_ids: Vec<u128>
 }
 impl Tank {
     fn render(&self, canvas: &mut Canvas<Window>, camera: &Camera, textures: &HashMap<String, Texture>) {
@@ -84,6 +153,24 @@ impl Tank {
             println!("attempt to move a tank in the direction (0.,0.)");
         }
     }
+
+    /// Applies rotation force to the tank, rotating it towards a point over time (in map coordinates)
+    fn rotate_to(&mut self, to: (f64, f64)) {
+        let tg_angle = -f64::atan2(self.physics.x - to.0, self.physics.y - to.1).to_degrees();
+        self.physics.push_rot(angle_diff(self.physics.rot + self.physics.rotvel/2., tg_angle)/180.*self.rot_power);
+    }
+
+    /// Fires from all the tank's reloaded turrets
+    /// Will make the bullets belong to `source_id` (for sake of eg. who did the kill)
+    fn fire(&mut self, bullets: &mut HashMap<u128, Bullet>, source_id: u128) {
+        for t in &mut self.turrets {
+            let bullet = t.fire(&self.physics, source_id);
+            if bullet.is_some() {
+                let x:u128 = thread_rng().gen();
+                bullets.insert(x, bullet.unwrap());
+            }
+        }
+    }
 }
 
 /// xy pos, zoom and target tank the camera follows(usally player tank).
@@ -96,12 +183,39 @@ struct Camera {
     zoom: f64,
     target_tank: u128
 
+} 
+impl Camera {
+    /// Converts from screen to map coordinates
+    fn to_map_coords(&self, coords: (i32, i32)) -> (f64, f64) {
+        // does nothing yet
+        return (coords.0 as f64, coords.1 as f64);
+    }
+
+    /// Converts from map to screen coordinates
+    fn to_screen_coords(&self) -> (i32, i32) {
+        todo!()
+    }
 }
 
 /// A bullet or a drone(controlled bullet)
+#[derive(Debug)]
 struct Bullet {
     physics: Physics,
-
+    source_tank_id: u128
+}
+impl Bullet {
+    fn render(&self, canvas: &mut Canvas<Window>, camera: &Camera, textures: &HashMap<String, Texture>) {
+        let texture = textures.get("tank").unwrap();
+        canvas.copy_ex(
+            &texture, None,
+            Rect::from_center(
+                Point::from((self.physics.x as i32, self.physics.y as i32)), // set center position
+                100, 100  // set render width and height
+            ),
+            self.physics.rot, // set rotation
+            Point::from((50,50)), // set center of rotation, in screen coordinates (not texture coordinates)
+            false, false).unwrap();
+    }
 }
 
 /// Tracks info about a button, like if it is pressed, and what keycodes and/or mouse button activates it
@@ -219,6 +333,8 @@ impl Map {
     }
 
     /// Updates the positions based on velocities of all objects, and slows down velocities by frincion/resistance
+    /// 
+    /// Also updates times to realod for all turrets (only rank turrets now)
     fn update_physics(&mut self, delta: u128) {
         // mutable iterator over the physics' of all tanks, bullets and shapes
         let combined_iter = self.tanks.iter_mut().map(|tank| &mut tank.1.physics)
@@ -227,8 +343,13 @@ impl Map {
 
         for o in combined_iter {
             o.update(delta);
+        }
 
-            println!("x: {}", o.x);
+        for tank in self.tanks.values_mut() {
+            for turret in &mut tank.turrets {
+                // substracts delta from time to next shot, but doesn't go below zero
+                turret.time_to_next_shot = turret.time_to_next_shot - turret.time_to_next_shot.min(delta);
+            }
         }
     }
 }
@@ -240,7 +361,7 @@ fn main() {
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
     let window = video_subsystem
-        .window("SDL2 Window", 800, 600)
+        .window("SDL2 Window", 1024, 1024)
         .position_centered()
         .build()
         .unwrap();
@@ -252,7 +373,7 @@ fn main() {
 
     // load textures. will be moved to its own function in the future
     let texture_creator = canvas.texture_creator();
-    // Hashmap of all the textures used in the game. Later will read all textures form the textures folder and add them to the hashmap by the filename without the extension
+    // HashMap of all the textures used in the game. Later will read all textures form the textures folder and add them to the hashmap by the filename without the extension
     let mut textures: HashMap<String, Texture> = HashMap::new();
     textures.insert("tank".to_owned(), texture_creator.load_texture("textures/t.png").unwrap());
 
@@ -280,12 +401,22 @@ fn main() {
                 rot: 0.,
                 rotvel: 9000.
             },
+            turrets: vec![Turret {
+                projectile_speed: 1000.,
+                projectile_weight: 10.,
+                reload_time: 500_000,
+                inaccuracy: 0.,
+                relative_direction: 0.,
+                time_to_next_shot: 0
+            }],
             hp: 100,
-            power: 100.
+            power: 100.,
+            rot_power: 1000.,
+            bullet_ids: vec![],
         }
     );
 
-    let mut last_frame_start = Instant::now();
+    let mut last_frame_start;
     // How long the last frame took, in micros, 1 millisecond for the first frame
     let mut delta = 1_000;
 
@@ -337,6 +468,8 @@ fn main() {
         }
 
         // PLAYER CONTROL
+
+        //movement
         if input.up.is_down {
             map.tanks.get_mut(&playerid).unwrap().move_in_dir((0.,-1.));
         }
@@ -348,6 +481,14 @@ fn main() {
         }
         if input.right.is_down {
             map.tanks.get_mut(&playerid).unwrap().move_in_dir((1.,0.));
+        }
+
+        //rotation
+        map.tanks.get_mut(&playerid).unwrap().rotate_to(camera.to_map_coords(input.mouse_pos));
+
+        //firing
+        if input.fire.is_down {
+            map.tanks.get_mut(&playerid).unwrap().fire(&mut map.bullets, playerid);
         }
 
         // PHYSICS
@@ -366,6 +507,11 @@ fn main() {
         // Render all tanks
         for tank in &map.tanks {
             tank.1.render(&mut canvas, &mut camera, &textures);
+        }
+
+        // Render all bullets
+        for bullet in &map.bullets {
+            bullet.1.render(&mut canvas, &mut camera, &textures);
         }
 
         canvas.present();
