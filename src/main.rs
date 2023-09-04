@@ -205,15 +205,15 @@ struct Bullet {
 }
 impl Bullet {
     fn render(&self, canvas: &mut Canvas<Window>, camera: &Camera, textures: &HashMap<String, Texture>) {
-        let texture = textures.get("tank").unwrap();
+        let texture = textures.get("bullet").unwrap();
         canvas.copy_ex(
             &texture, None,
             Rect::from_center(
                 Point::from((self.physics.x as i32, self.physics.y as i32)), // set center position
-                100, 100  // set render width and height
+                30, 30  // set render width and height
             ),
             self.physics.rot, // set rotation
-            Point::from((50,50)), // set center of rotation, in screen coordinates (not texture coordinates)
+            Point::from((15,15)), // set center of rotation, in screen coordinates (not texture coordinates)
             false, false).unwrap();
     }
 }
@@ -376,6 +376,7 @@ fn main() {
     // HashMap of all the textures used in the game. Later will read all textures form the textures folder and add them to the hashmap by the filename without the extension
     let mut textures: HashMap<String, Texture> = HashMap::new();
     textures.insert("tank".to_owned(), texture_creator.load_texture("textures/t.png").unwrap());
+    textures.insert("bullet".to_owned(), texture_creator.load_texture("textures/b.png").unwrap());
 
     // Initialize my own things
     let mut map = Map::new();
@@ -402,7 +403,7 @@ fn main() {
                 rotvel: 9000.
             },
             turrets: vec![Turret {
-                projectile_speed: 1000.,
+                projectile_speed: 10000.,
                 projectile_weight: 10.,
                 reload_time: 500_000,
                 inaccuracy: 0.,
@@ -498,20 +499,20 @@ fn main() {
 
 
         // RENDER
-        
+        // render the things you want to appear on top last
+
         // Clear the screen with black color
         canvas.set_draw_color(Color::RGB(0, 0, 0));
         canvas.clear();
 
+        // Render all bullets
+        for bullet in &map.bullets {
+            bullet.1.render(&mut canvas, &mut camera, &textures);
+        }
 
         // Render all tanks
         for tank in &map.tanks {
             tank.1.render(&mut canvas, &mut camera, &textures);
-        }
-
-        // Render all bullets
-        for bullet in &map.bullets {
-            bullet.1.render(&mut canvas, &mut camera, &textures);
         }
 
         canvas.present();
