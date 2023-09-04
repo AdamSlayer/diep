@@ -4,7 +4,7 @@ extern crate sdl2;
 
 use rand::{Rng, thread_rng};
 use sdl2::event::Event;
-use sdl2::image::{self, InitFlag, LoadTexture};
+use sdl2::image::LoadTexture;
 use sdl2::keyboard::Keycode;
 use sdl2::mouse::MouseButton;
 use sdl2::pixels::Color;
@@ -97,7 +97,7 @@ impl Turret {
             // calculate bullet speed vector relative to tank
             let fire_vector = (
                 self.projectile_speed*(self.relative_direction+tank_physics.rot).to_radians().sin(),
-                self.projectile_speed*(self.relative_direction+tank_physics.rot).to_radians().cos()
+                -self.projectile_speed*(self.relative_direction+tank_physics.rot).to_radians().cos()
             );
 
             // duplicate tank physics
