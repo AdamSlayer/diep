@@ -1,8 +1,8 @@
 #[allow(unused)]
 
 extern crate sdl2;
-
-use rand::{Rng, thread_rng};
+use rand::prelude::*;
+use rand_distr::{Distribution, Normal};
 use sdl2::event::Event;
 use sdl2::image::LoadTexture;
 use sdl2::keyboard::Keycode;
@@ -63,6 +63,11 @@ impl Physics {
         self.yvel *= (-(delta as f64)/1_000_000.).exp();
         self.rotvel *= (-(delta as f64)/1_000_000.).exp();
     }
+
+    /// returns the speed of the object - sqrt(xvel**2 + yvel**2)
+    fn speed(&self) -> f64 {
+        f64::sqrt(self.xvel.powi(2) + self.yvel.powi(2))
+    }
 }
 
 /// Square, triangle, pentagon
@@ -78,6 +83,7 @@ struct Turret {
     /// in micros, first shot is immediatae
     reload_time: u128,
     /// mean in degrees, gaussian propability distribution
+    /// also randomizes projectile speed, at rate 1 degree = 1% speed
     inaccuracy: f64,
     /// in degrees, turret facing relative to tank facing
     relative_direction: f64,
@@ -90,14 +96,27 @@ impl Turret {
     /// Returns an Option<Bullet> if fired, and None otherwise.
     /// Tank physics can be physics of anything, theoretically allowing bullets of shapes to fire bullets too if they have a turret
     fn fire(&mut self, tank_physics: &Physics, tank_id: u128) -> Option<Bullet> {
-        println!("{}", self.time_to_next_shot);
         if self.time_to_next_shot > 0 {
             None
         } else {
+            let random_speed: f64;
+            let random_direction: f64;
+            if self.inaccuracy != 0. {
+                // Create a Gaussian distribution with the specified standard deviation
+                let normal = rand_distr::Normal::new(0., self.inaccuracy).expect("Invalid parameters for normal distribution");
+
+                // Generate random numbers from the Gaussian distribution
+                random_speed = self.projectile_speed*(1. + 0.01*normal.sample(&mut thread_rng()));
+                random_direction = normal.sample(&mut thread_rng());
+            } else {
+                random_speed = self.projectile_speed;
+                random_direction = 0.;
+            }
+
             // calculate bullet speed vector relative to tank
             let fire_vector = (
-                self.projectile_speed*(self.relative_direction+tank_physics.rot).to_radians().sin(),
-                -self.projectile_speed*(self.relative_direction+tank_physics.rot).to_radians().cos()
+                random_speed * (self.relative_direction+tank_physics.rot + random_direction).to_radians().sin(),
+                -random_speed* (self.relative_direction+tank_physics.rot + random_direction).to_radians().cos()
             );
 
             // duplicate tank physics
@@ -111,6 +130,7 @@ impl Turret {
 
             Some(Bullet {
                 physics: bullet_physics,
+                dead_speed: bullet_physics.speed() * 0.5,
                 source_tank_id: tank_id
             })
         }
@@ -134,7 +154,7 @@ impl Tank {
         canvas.copy_ex(
             &texture, None,
             Rect::from_center(
-                Point::from((self.physics.x as i32, self.physics.y as i32)), // set center position
+                Point::from(camera.to_screen_coords((self.physics.x, self.physics.y))), // set center position
                 100, 100  // set render width and height
             ),
             self.physics.rot, // set rotation
@@ -154,7 +174,7 @@ impl Tank {
         }
     }
 
-    /// Applies rotation force to the tank, rotating it towards a point over time (in map coordinates)
+    /// Applies rotation force to the tank, rotating it towards a point over time. `to` is on map coordinates
     fn rotate_to(&mut self, to: (f64, f64)) {
         let tg_angle = -f64::atan2(self.physics.x - to.0, self.physics.y - to.1).to_degrees();
         self.physics.push_rot(angle_diff(self.physics.rot + self.physics.rotvel/2., tg_angle)/180.*self.rot_power);
@@ -181,19 +201,28 @@ struct Camera {
     y: f64,
     /// Bigger value => things look bigger (basically scale)
     zoom: f64,
-    target_tank: u128
+    target_tank: u128,
+    viewport_size: (i32, i32)
 
 } 
 impl Camera {
     /// Converts from screen to map coordinates
     fn to_map_coords(&self, coords: (i32, i32)) -> (f64, f64) {
-        // does nothing yet
-        return (coords.0 as f64, coords.1 as f64);
+        let x = (coords.0 as f64) / self.zoom + self.x - (self.viewport_size.0 / 2) as f64;
+        let y = (coords.1 as f64) / self.zoom + self.y - (self.viewport_size.1 / 2) as f64;
+        (x, y)
     }
 
     /// Converts from map to screen coordinates
-    fn to_screen_coords(&self) -> (i32, i32) {
-        todo!()
+    fn to_screen_coords(&self, coords: (f64, f64)) -> (i32, i32) {
+        let x = ((coords.0 - self.x + (self.viewport_size.0 / 2) as f64) * self.zoom) as i32;
+        let y = ((coords.1 - self.y + (self.viewport_size.1 / 2) as f64) * self.zoom) as i32;
+        (x, y)
+    }
+
+    fn track(&mut self, delta: u128, tg: &Physics) {
+        self.x = tg.x;
+        self.y = tg.y;
     }
 }
 
@@ -201,6 +230,8 @@ impl Camera {
 #[derive(Debug)]
 struct Bullet {
     physics: Physics,
+    /// the speed at which the bullet will be removed
+    dead_speed: f64,
     source_tank_id: u128
 }
 impl Bullet {
@@ -209,7 +240,7 @@ impl Bullet {
         canvas.copy_ex(
             &texture, None,
             Rect::from_center(
-                Point::from((self.physics.x as i32, self.physics.y as i32)), // set center position
+                Point::from(camera.to_screen_coords((self.physics.x, self.physics.y))), // set center position
                 30, 30  // set render width and height
             ),
             self.physics.rot, // set rotation
@@ -315,8 +346,12 @@ impl Input {
 /// Main struct that stores everything - tanks, shapes, bullets, walls etc.
 /// Does not store information about which tank is the player.
 struct Map {
+    /// 0,0 is at the center of the map. this is the distance of the walls in x and y. actual size is thenfore double this
+    map_size: (f64, f64),
     /// All the squares, triangles and pentagons on the map
     shapes: Vec<Shape>, // no need to find a specific shape, so no hashmap but just Vec<>
+    /// maximum number of shapes on the map, maxes for each shape type will be derived from this
+    shapes_max: usize,
     /// All the tanks on the map, including player, bots, bosses etc.
     tanks: HashMap<u128, Tank>, // hashmap because of quicker searching for the tank when it's bullet kills something
     /// All the things shot by tanks - bullets or drones. Projectiles that make other things (rocket laucher tank, factory tank) aren't supported
@@ -326,15 +361,37 @@ impl Map {
     /// Makes an empty map. Does not add the player tank or anything else.
     fn new() -> Self {
         Map {
+            map_size: (10000., 10000.,),
+            shapes_max: 100,
             shapes: Vec::new(),
             tanks: HashMap::new(),
             bullets: HashMap::new(),
         }
     }
 
+    /// renders grid, walls, maybe more in the future
+    fn render(&self, canvas: &mut Canvas<Window> , camera: &Camera) {
+        for x in ((camera.x - 1./camera.zoom*camera.viewport_size.0 as f64).floor() as i32..(camera.x + 1./camera.zoom*camera.viewport_size.0 as f64).ceil() as i32).filter(|x| x%40 == 0) {
+            canvas.set_draw_color(Color::GRAY);
+            canvas.draw_line(Point::from((x - camera.x as i32, i32::MAX)), Point::from((x - camera.x as i32, i32::MIN))).expect("failed to draw line");
+        }
+
+        for y in ((camera.y - 1./camera.zoom*camera.viewport_size.1 as f64).floor() as i32..(camera.y + 1./camera.zoom*camera.viewport_size.1 as f64).ceil() as i32).filter(|y| y%40 == 0) {
+            canvas.set_draw_color(Color::GRAY);
+            canvas.draw_line(Point::from((i32::MAX, y - camera.y as i32)), Point::from((i32::MIN, y - camera.y as i32))).expect("failed to draw line");
+        }
+    }
+
+    /// This contains a lot of things, and is called every frame. Includes velocity/position calculations, removing slow bullets, spawns shapes, more in the future
+    /// 
     /// Updates the positions based on velocities of all objects, and slows down velocities by frincion/resistance
     /// 
-    /// Also updates times to realod for all turrets (only rank turrets now)
+    /// Updates times to realod for all turrets (only tank turrets now)
+    /// 
+    /// Removes all bullets s.t. the bullet speed is below it's dead speed
+    /// 
+    /// Randomly spawns shapes
+    /// 
     fn update_physics(&mut self, delta: u128) {
         // mutable iterator over the physics' of all tanks, bullets and shapes
         let combined_iter = self.tanks.iter_mut().map(|tank| &mut tank.1.physics)
@@ -351,6 +408,15 @@ impl Map {
                 turret.time_to_next_shot = turret.time_to_next_shot - turret.time_to_next_shot.min(delta);
             }
         }
+
+        // removes all bullets with speed less than dead_speed
+        self.bullets.retain(|id, bullet| bullet.physics.speed() >= bullet.dead_speed);
+
+        // spawn shapes
+        if self.shapes.len() < self.shapes_max {
+            // TODO add shapes
+        }
+
     }
 }
 
@@ -386,7 +452,8 @@ fn main() {
         x: 0.,
         y: 0.,
         zoom: 1.,
-        target_tank: playerid
+        target_tank: playerid,
+        viewport_size: (1024, 1024)
     };
 
     // add player
@@ -405,14 +472,14 @@ fn main() {
             turrets: vec![Turret {
                 projectile_speed: 10000.,
                 projectile_weight: 10.,
-                reload_time: 500_000,
-                inaccuracy: 0.,
+                reload_time: 10_000,
+                inaccuracy: 2.,
                 relative_direction: 0.,
                 time_to_next_shot: 0
             }],
             hp: 100,
-            power: 100.,
-            rot_power: 1000.,
+            power: 300.,
+            rot_power: 3000.,
             bullet_ids: vec![],
         }
     );
@@ -498,12 +565,20 @@ fn main() {
         map.update_physics(delta);
 
 
+        // CAMERA
+        camera.track(delta, &map.tanks.get(&camera.target_tank).expect("Failed to get the tank to track with camera").physics);
+
+
         // RENDER
         // render the things you want to appear on top last
 
         // Clear the screen with black color
         canvas.set_draw_color(Color::RGB(0, 0, 0));
         canvas.clear();
+
+        // render map walls and grid
+        map.render(&mut canvas, &camera);
+
 
         // Render all bullets
         for bullet in &map.bullets {
