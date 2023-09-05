@@ -48,7 +48,11 @@ struct Physics {
     rotvel: f64,
     /// radius of the collision circle
     collision_size: f64,
-    hp: f64
+    /// current health
+    hp: f64,
+    max_hp: f64,
+    /// per second
+    hp_regen: f64,
 }
 impl Physics {
     /// Applies a one time push in a specified direction, suddenly changing velocity. Has lower impact on heavier objects.
@@ -62,6 +66,7 @@ impl Physics {
         self.rotvel += f/self.weight;
     }
     
+    /// update velocity by friction, position/rotation by velocity, and hp by hp_regen
     fn update(&mut self, delta: u128) {
         self.x += self.xvel * (delta as f64 / 1_000_000.);
         self.y += self.yvel * (delta as f64 / 1_000_000.);
@@ -71,6 +76,8 @@ impl Physics {
         self.xvel *= (-(delta as f64)/1_000_000.).exp();
         self.yvel *= (-(delta as f64)/1_000_000.).exp();
         self.rotvel *= (-(delta as f64)/1_000_000.).exp();
+
+        self.hp = (self.hp + self.hp_regen*(delta as f64/1_000_000.)).min(self.max_hp);
     }
 
     /// returns the speed of the object - sqrt(xvel**2 + yvel**2)
@@ -91,7 +98,8 @@ impl Physics {
             self.push((n.0*s, n.1*s));
             self.xvel *= (-((delta/100_000) as f64)).exp();
             self.yvel *= (-((delta/100_000) as f64)).exp();
-            self.hp -= b.weight * b.speed();
+            // collision damage is the length of the difference of the speed vectors
+            self.hp -= ((b.xvel - self.xvel).powi(2) + (b.yvel - self.yvel).powi(2)).sqrt();
         }
     }
 }
@@ -166,8 +174,8 @@ impl Turret {
             bullet_physics.weight = self.projectile_weight;
             bullet_physics.collision_size = self.projectile_collision_size;
             bullet_physics.push(fire_vector);
-            bullet_physics.x += bullet_physics.xvel/45.;
-            bullet_physics.y += bullet_physics.yvel/45.;
+            bullet_physics.x += bullet_physics.xvel/30.;
+            bullet_physics.y += bullet_physics.yvel/30.;
 
             self.time_to_next_shot = self.reload_time;
 
@@ -188,20 +196,27 @@ struct Tank {
     /// How much power the tank can apply to it's rotation movement. Will rotate faster with more power, but slower if it weights more.
     rot_power: f64,
     turrets: Vec<Turret>,
-    bullet_ids: Vec<u128>
+    bullet_ids: Vec<u128>,
 }
 impl Tank {
     fn render(&self, canvas: &mut Canvas<Window>, camera: &Camera, textures: &HashMap<String, Texture>) {
         let texture = textures.get("tank").unwrap();
+        let tank_screen_pos = camera.to_screen_coords((self.physics.x, self.physics.y));
+
         canvas.copy_ex(
             &texture, None,
             Rect::from_center(
-                Point::from(camera.to_screen_coords((self.physics.x, self.physics.y))), // set center position
+                Point::from(tank_screen_pos), // set center position
                 100, 100  // set render width and height
             ),
             self.physics.rot, // set rotation
             Point::from((50,50)), // set center of rotation, in screen coordinates (not texture coordinates)
             false, false).unwrap();
+        
+            canvas.set_draw_color(Color::RGB(63,63,63));
+            canvas.draw_line((tank_screen_pos.0 - 50, tank_screen_pos.1 - 70), (tank_screen_pos.0 + 50, tank_screen_pos.1 - 70)).unwrap();
+            canvas.set_draw_color(Color::RGB(0,255,0));
+            canvas.draw_line((tank_screen_pos.0 - 50, tank_screen_pos.1 - 70), (tank_screen_pos.0 - 50 + (self.physics.hp/self.physics.max_hp*100.) as i32, tank_screen_pos.1 - 70)).unwrap();
     }
 
 
@@ -450,7 +465,7 @@ impl Map {
         }
     }
 
-    /// This contains a lot of things, and is called every frame. Includes velocity/position calculations, removing slow bullets, spawns shapes, more in the future
+    /// This contains a lot of things, and is called every frame. Includes velocity/position calculations, removing slow bullets, spawns shapes, regens health, more in the future
     /// 
     /// Updates the positions based on velocities of all objects, and slows down velocities by frincion/resistance
     /// 
@@ -530,7 +545,9 @@ impl Map {
                     rot: thread_rng().gen::<f64>()*360.,
                     rotvel: 0.,
                     collision_size: 20.,
-                    hp: 10000.
+                    hp: 10000.,
+                    max_hp: 10000.,
+                    hp_regen: 100.,
                 },
             });
         }
@@ -587,7 +604,9 @@ fn main() {
                 rot: 0.,
                 rotvel: 9000.,
                 collision_size: 35.,
-                hp: 1000000.,
+                hp: 10000.,
+                max_hp: 10000.,
+                hp_regen: 100.,
             },
             turrets: vec![Turret {
                 projectile_speed: 1000.,
