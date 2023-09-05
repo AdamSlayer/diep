@@ -25,6 +25,12 @@ fn angle_diff(a: f64, b: f64) -> f64 {
     diff
 }
 
+fn normalize(v: (f64, f64)) -> (f64, f64) {
+    // noramlize vector
+    let magnitude = (v.0 * v.0 + v.1 * v.1).sqrt();
+    return (v.0 / magnitude, v.1 / magnitude);
+}
+
 
 /// Contains position, velocity, weight, and has some useful methods
 /// 
@@ -40,6 +46,9 @@ struct Physics {
     rot: f64,
     /// degrees per second
     rotvel: f64,
+    /// radius of the collision circle
+    collision_size: f64,
+    hp: f64
 }
 impl Physics {
     /// Applies a one time push in a specified direction, suddenly changing velocity. Has lower impact on heavier objects.
@@ -68,18 +77,49 @@ impl Physics {
     fn speed(&self) -> f64 {
         f64::sqrt(self.xvel.powi(2) + self.yvel.powi(2))
     }
+
+    fn dist(&self, other: &Physics) -> f64 {
+        f64::sqrt((self.x - other.x).powi(2) + (self.y - other.y).powi(2))
+    }
+
+    /// Only moves self, need to be called in reverse to move `b`
+    fn collide(&mut self, b: &Physics, delta: u128) {
+        let s = 1_000_000./delta as f64*((self.collision_size + b.collision_size) - self.dist(&b));
+        if s > 0. {
+            let n = normalize((self.x - b.x, self.y - b.y));
+            println!("{:?}", b.weight * b.speed());
+            self.push((n.0*s, n.1*s));
+            self.xvel *= (-((delta/100_000) as f64)).exp();
+            self.yvel *= (-((delta/100_000) as f64)).exp();
+            self.hp -= b.weight * b.speed();
+        }
+    }
 }
 
 /// Square, triangle, pentagon
 struct Shape {
-    physics: Physics,
-    hp: u32
+    physics: Physics
+}
+impl Shape {
+    fn render(&self, canvas: &mut Canvas<Window>, camera: &Camera, textures: &HashMap<String, Texture>) {
+        let texture = textures.get("shape").unwrap();
+        canvas.copy_ex(
+            &texture, None,
+            Rect::from_center(
+                Point::from(camera.to_screen_coords((self.physics.x, self.physics.y))), // set center position
+                100, 100  // set render width and height
+            ),
+            self.physics.rot, // set rotation
+            Point::from((50,50)), // set center of rotation, in screen coordinates (not texture coordinates)
+            false, false).unwrap();
+    }
 }
 
 /// Turrets can now only shoot bullets, will change later
 struct Turret {
     projectile_speed: f64,
     projectile_weight: f64,
+    projectile_collision_size: f64,
     /// in micros, first shot is immediatae
     reload_time: u128,
     /// mean in degrees, gaussian propability distribution
@@ -124,7 +164,10 @@ impl Turret {
 
             // set bullet weight and push it
             bullet_physics.weight = self.projectile_weight;
+            bullet_physics.collision_size = self.projectile_collision_size;
             bullet_physics.push(fire_vector);
+            bullet_physics.x += bullet_physics.xvel/45.;
+            bullet_physics.y += bullet_physics.yvel/45.;
 
             self.time_to_next_shot = self.reload_time;
 
@@ -140,7 +183,6 @@ impl Turret {
 /// A tank. Player, bot, boss etc
 struct Tank {
     physics: Physics,
-    hp: u32,
     /// How much power the tank can apply to it's movement. Will move faster with more power, but slower if it weights more.
     power: f64,
     /// How much power the tank can apply to it's rotation movement. Will rotate faster with more power, but slower if it weights more.
@@ -349,7 +391,7 @@ struct Map {
     /// 0,0 is at the center of the map. this is the distance of the walls in x and y. actual size is thenfore double this
     map_size: (f64, f64),
     /// All the squares, triangles and pentagons on the map
-    shapes: Vec<Shape>, // no need to find a specific shape, so no hashmap but just Vec<>
+    shapes: HashMap<u128, Shape>, // no need to find a specific shape, so no hashmap but just Vec<>
     /// maximum number of shapes on the map, maxes for each shape type will be derived from this
     shapes_max: usize,
     /// All the tanks on the map, including player, bots, bosses etc.
@@ -361,9 +403,9 @@ impl Map {
     /// Makes an empty map. Does not add the player tank or anything else.
     fn new() -> Self {
         Map {
-            map_size: (10000., 10000.,),
+            map_size: (1000., 1000.,),
             shapes_max: 100,
-            shapes: Vec::new(),
+            shapes: HashMap::new(),
             tanks: HashMap::new(),
             bullets: HashMap::new(),
         }
@@ -371,14 +413,40 @@ impl Map {
 
     /// renders grid, walls, maybe more in the future
     fn render(&self, canvas: &mut Canvas<Window> , camera: &Camera) {
-        for x in ((camera.x - 1./camera.zoom*camera.viewport_size.0 as f64).floor() as i32..(camera.x + 1./camera.zoom*camera.viewport_size.0 as f64).ceil() as i32).filter(|x| x%40 == 0) {
+        for x in ((camera.x - 1./camera.zoom*camera.viewport_size.0 as f64).floor() as i32..(camera.x + 1./camera.zoom*camera.viewport_size.0 as f64).ceil() as i32).filter(|x| x%100 == 0) {
             canvas.set_draw_color(Color::GRAY);
-            canvas.draw_line(Point::from((x - camera.x as i32, i32::MAX)), Point::from((x - camera.x as i32, i32::MIN))).expect("failed to draw line");
+            canvas.draw_line(Point::from(camera.to_screen_coords((x as f64, self.map_size.0))), Point::from(camera.to_screen_coords((x as f64, -self.map_size.0)))).expect("failed to draw line");
         }
 
-        for y in ((camera.y - 1./camera.zoom*camera.viewport_size.1 as f64).floor() as i32..(camera.y + 1./camera.zoom*camera.viewport_size.1 as f64).ceil() as i32).filter(|y| y%40 == 0) {
+        for y in ((camera.y - 1./camera.zoom*camera.viewport_size.1 as f64).floor() as i32..(camera.y + 1./camera.zoom*camera.viewport_size.1 as f64).ceil() as i32).filter(|y| y%100 == 0) {
             canvas.set_draw_color(Color::GRAY);
-            canvas.draw_line(Point::from((i32::MAX, y - camera.y as i32)), Point::from((i32::MIN, y - camera.y as i32))).expect("failed to draw line");
+            canvas.draw_line(Point::from(camera.to_screen_coords((self.map_size.1, y as f64))), Point::from(camera.to_screen_coords((-self.map_size.1, y as f64)))).expect("failed to draw line");
+        }
+    }
+
+    /// Finds the physics by u128 key, searches in tanks, bullets and shapes
+    fn get_physics(&self, k: &u128) -> Option<&Physics> {
+        if self.tanks.get(k).is_some() {
+            Some(&self.tanks.get(k).unwrap().physics)
+        } else if self.shapes.get(k).is_some() {
+            Some(&self.shapes.get(k).unwrap().physics)
+        } else if self.bullets.get(k).is_some() {
+            Some(&self.bullets.get(k).unwrap().physics)
+        } else {
+            panic!()
+        }
+    }
+
+    /// Finds the physics by u128 key, searches in tanks, bullets and shapes
+    fn get_physics_mut(&mut self, k: &u128) -> Option<&mut Physics> {
+        if self.tanks.get(k).is_some() {
+            Some(&mut self.tanks.get_mut(k).unwrap().physics)
+        } else if self.shapes.get(k).is_some() {
+            Some(&mut self.shapes.get_mut(k).unwrap().physics)
+        } else if self.bullets.get(k).is_some() {
+            Some(&mut self.bullets.get_mut(k).unwrap().physics)
+        } else {
+            panic!()
         }
     }
 
@@ -393,13 +461,51 @@ impl Map {
     /// Randomly spawns shapes
     /// 
     fn update_physics(&mut self, delta: u128) {
-        // mutable iterator over the physics' of all tanks, bullets and shapes
-        let combined_iter = self.tanks.iter_mut().map(|tank| &mut tank.1.physics)
-        .chain(self.bullets.iter_mut().map(|tank| &mut tank.1.physics))
-        .chain(self.shapes.iter_mut().map(|tank| &mut tank.physics));
+        // things that happen for one (uprate physics, wall collision)
+        {
+            // mutable iterator over the physics' of all tanks, bullets and shapes
+            let combined_iter_mut = self.tanks.iter_mut().map(|tank| &mut tank.1.physics)
+            .chain(self.bullets.iter_mut().map(|bullet| &mut bullet.1.physics))
+            .chain(self.shapes.iter_mut().map(|shape| &mut shape.1.physics));
 
-        for o in combined_iter {
-            o.update(delta);
+            for o in combined_iter_mut {
+                o.update(delta);
+                if o.x.abs() > self.map_size.0 {
+                    o.push(((self.map_size.0*o.x.signum() - o.x)*delta as f64/1000., 0.));
+                    o.xvel *= (-(delta as f64)/10_000. / o.weight).exp();
+                    o.yvel *= (-(delta as f64)/10_000. / o.weight).exp();
+                }
+                if o.y.abs() > self.map_size.1 {
+                    o.push((0., (self.map_size.1*o.y.signum() - o.y)*delta as f64/1000.));
+                    o.xvel *= (-(delta as f64)/10_000. / o.weight).exp();
+                    o.yvel *= (-(delta as f64)/10_000. / o.weight).exp();
+                }
+            }
+
+            // remove <0 hp objects
+            self.tanks.retain(|_, v| v.physics.hp > 0.);
+            self.bullets.retain(|_, v| v.physics.hp > 0.);
+            self.shapes.retain(|_, v| v.physics.hp > 0.);
+        }
+        // things that happen for pairs, only one is mutable (collisions)
+        {
+            let mut keys = Vec::new();
+            {
+                let ref_keys: Vec<&u128> = self.bullets.keys().chain(self.shapes.keys()).chain(self.tanks.keys()).collect();
+                for k in ref_keys {
+                    keys.push(*k);
+                }
+            }
+            
+            for k1 in keys.iter() {
+                let p1 = self.get_physics(k1).unwrap().clone();
+                for k2 in keys.iter() {
+                    if k1 != k2 {
+                        self.get_physics_mut(k2).unwrap().collide(&p1, delta);
+                    }
+                }
+            }
+            
         }
 
         for tank in self.tanks.values_mut() {
@@ -414,9 +520,20 @@ impl Map {
 
         // spawn shapes
         if self.shapes.len() < self.shapes_max {
-            // TODO add shapes
+            self.shapes.insert(thread_rng().gen::<u128>(), Shape {
+                physics: Physics {
+                    x: thread_rng().gen_range(-self.map_size.0..self.map_size.0),
+                    y: thread_rng().gen_range(-self.map_size.1..self.map_size.1),
+                    xvel: 0.,
+                    yvel: 0.,
+                    weight: 100.,
+                    rot: thread_rng().gen::<f64>()*360.,
+                    rotvel: 0.,
+                    collision_size: 20.,
+                    hp: 10000.
+                },
+            });
         }
-
     }
 }
 
@@ -443,6 +560,7 @@ fn main() {
     let mut textures: HashMap<String, Texture> = HashMap::new();
     textures.insert("tank".to_owned(), texture_creator.load_texture("textures/t.png").unwrap());
     textures.insert("bullet".to_owned(), texture_creator.load_texture("textures/b.png").unwrap());
+    textures.insert("shape".to_owned(), texture_creator.load_texture("textures/s.png").unwrap());
 
     // Initialize my own things
     let mut map = Map::new();
@@ -467,17 +585,19 @@ fn main() {
                 yvel: 0.,
                 weight: 100.,
                 rot: 0.,
-                rotvel: 9000.
+                rotvel: 9000.,
+                collision_size: 35.,
+                hp: 1000000.,
             },
             turrets: vec![Turret {
-                projectile_speed: 10000.,
-                projectile_weight: 10.,
+                projectile_speed: 1000.,
+                projectile_weight: 1.,
+                projectile_collision_size: 5.,
                 reload_time: 10_000,
                 inaccuracy: 2.,
                 relative_direction: 0.,
                 time_to_next_shot: 0
             }],
-            hp: 100,
             power: 300.,
             rot_power: 3000.,
             bullet_ids: vec![],
@@ -582,6 +702,11 @@ fn main() {
 
         // Render all bullets
         for bullet in &map.bullets {
+            bullet.1.render(&mut canvas, &mut camera, &textures);
+        }
+
+        // Render all shapes
+        for bullet in &map.shapes {
             bullet.1.render(&mut canvas, &mut camera, &textures);
         }
 
