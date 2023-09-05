@@ -11,7 +11,7 @@ use sdl2::pixels::Color;
 use sdl2::rect::{Point, Rect};
 use sdl2::render::{Canvas, Texture};
 use sdl2::video::Window;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 /// From A to B
@@ -32,9 +32,9 @@ fn normalize(v: (f64, f64)) -> (f64, f64) {
 }
 
 
-/// Contains position, velocity, weight, and has some useful methods
+/// Contains position/rotation, velocity, weight, hp related variables
 /// 
-/// Clone needed for firing bullets, whuch first duplicate tank physics and then have a push applied
+/// Cloning is not expensive
 #[derive(Debug, Clone, Copy)]
 struct Physics {
     x: f64,
@@ -91,10 +91,9 @@ impl Physics {
 
     /// Only moves self, need to be called in reverse to move `b`
     fn collide(&mut self, b: &Physics, delta: u128) {
-        let s = 1_000_000./delta as f64*((self.collision_size + b.collision_size) - self.dist(&b));
-        if s > 0. {
+        if (self.collision_size + b.collision_size) > self.dist(&b) {
+            let s = 1_000_000./delta as f64*((self.collision_size + b.collision_size) - self.dist(&b));
             let n = normalize((self.x - b.x, self.y - b.y));
-            println!("{:?}", b.weight * b.speed());
             self.push((n.0*s, n.1*s));
             self.xvel *= (-((delta/100_000) as f64)).exp();
             self.yvel *= (-((delta/100_000) as f64)).exp();
@@ -174,8 +173,8 @@ impl Turret {
             bullet_physics.weight = self.projectile_weight;
             bullet_physics.collision_size = self.projectile_collision_size;
             bullet_physics.push(fire_vector);
-            bullet_physics.x += bullet_physics.xvel/30.;
-            bullet_physics.y += bullet_physics.yvel/30.;
+            bullet_physics.x += fire_vector.0/20.;
+            bullet_physics.y += fire_vector.1/20.;
 
             self.time_to_next_shot = self.reload_time;
 
@@ -220,12 +219,12 @@ impl Tank {
     }
 
 
-    fn move_in_dir(&mut self, dir: (f64, f64)) {
+    fn move_in_dir(&mut self, dir: (f64, f64), delta: u128) {
         // noramlize vector
         let magnitude = (dir.0 * dir.0 + dir.1 * dir.1).sqrt();
         if magnitude != 0.0 {
             let normalized_dir = (dir.0 / magnitude, dir.1 / magnitude);
-            self.physics.push((normalized_dir.0*self.power, normalized_dir.1*self.power));
+            self.physics.push((normalized_dir.0*self.power*delta as f64 / 1_000_000., normalized_dir.1*self.power*delta as f64 / 1_000_000.));
         } else {
             println!("attempt to move a tank in the direction (0.,0.)");
         }
@@ -418,8 +417,8 @@ impl Map {
     /// Makes an empty map. Does not add the player tank or anything else.
     fn new() -> Self {
         Map {
-            map_size: (1000., 1000.,),
-            shapes_max: 100,
+            map_size: (2000., 2000.,),
+            shapes_max: 400,
             shapes: HashMap::new(),
             tanks: HashMap::new(),
             bullets: HashMap::new(),
@@ -454,14 +453,12 @@ impl Map {
 
     /// Finds the physics by u128 key, searches in tanks, bullets and shapes
     fn get_physics_mut(&mut self, k: &u128) -> Option<&mut Physics> {
-        if self.tanks.get(k).is_some() {
-            Some(&mut self.tanks.get_mut(k).unwrap().physics)
-        } else if self.shapes.get(k).is_some() {
+        if self.shapes.get(k).is_some() {
             Some(&mut self.shapes.get_mut(k).unwrap().physics)
         } else if self.bullets.get(k).is_some() {
             Some(&mut self.bullets.get_mut(k).unwrap().physics)
         } else {
-            panic!()
+            Some(&mut self.tanks.get_mut(k).unwrap().physics)
         }
     }
 
@@ -504,22 +501,47 @@ impl Map {
         }
         // things that happen for pairs, only one is mutable (collisions)
         {
-            let mut keys = Vec::new();
-            {
-                let ref_keys: Vec<&u128> = self.bullets.keys().chain(self.shapes.keys()).chain(self.tanks.keys()).collect();
-                for k in ref_keys {
-                    keys.push(*k);
-                }
+            // (key, physics) pairs
+            let iter_all = self.bullets.iter().map(|(k, v)| (k, v.physics)).chain(self.shapes.iter().map(|(k, v)| (k, v.physics))).chain(self.tanks.iter().map(|(k, v)| (k, v.physics)));
+
+            // (key, x_position) pairs
+            let minx_iter = iter_all.clone().map(|(k, v)| (k, v.x - v.collision_size));
+            let maxx_iter = iter_all.map(|(k, v)| (k, v.x + v.collision_size));
+
+            // all the minx and maxx values of all objects are here, min is value.2==true and max is false
+            let mut all_vec: Vec<(u128, f64, bool)> = Vec::new();
+            for x in minx_iter {
+                all_vec.push((*x.0, x.1, true));
             }
-            
-            for k1 in keys.iter() {
-                let p1 = self.get_physics(k1).unwrap().clone();
-                for k2 in keys.iter() {
-                    if k1 != k2 {
-                        self.get_physics_mut(k2).unwrap().collide(&p1, delta);
+            for x in maxx_iter {
+                all_vec.push((*x.0, x.1, false));
+            }
+
+            // sort the vector, unstable is a bit faster and stable sorting is not needed here
+            all_vec.sort_unstable_by(|(_, v1, _), (_, v2, _)| v1.partial_cmp(v2).unwrap());
+
+            // hashset instead of vec for faster searching. Hashset is like a Hashmap with only the keys
+            let mut active: HashSet<u128> = HashSet::new();
+
+            for (k, x, b) in all_vec {
+                if b {
+                    // perform a collision check between the added object and all active objects (both ways)
+                    for a in active.iter() {
+                        // active object physics
+                        let ap = (self.get_physics(a).unwrap()).clone();
+                        self.get_physics_mut(&k).unwrap().collide(&ap, delta);
+
+                        // key object physics
+                        let kp = (self.get_physics(&k).unwrap()).clone();
+                        self.get_physics_mut(&a).unwrap().collide(&kp, delta);
                     }
+                    // add the object at the end to prevent collision with itself
+                    active.insert(k);
+                } else {
+                    active.remove(&k);
                 }
             }
+
             
         }
 
@@ -612,13 +634,13 @@ fn main() {
                 projectile_speed: 1000.,
                 projectile_weight: 1.,
                 projectile_collision_size: 5.,
-                reload_time: 10_000,
+                reload_time: 100_000,
                 inaccuracy: 2.,
                 relative_direction: 0.,
                 time_to_next_shot: 0
             }],
-            power: 300.,
-            rot_power: 3000.,
+            power: 30000.,
+            rot_power: 30000.,
             bullet_ids: vec![],
         }
     );
@@ -628,7 +650,6 @@ fn main() {
     let mut delta = 1_000;
 
     'running: loop {
-
         last_frame_start = Instant::now();
         input.refresh();
 
@@ -676,26 +697,28 @@ fn main() {
 
         // PLAYER CONTROL
 
-        //movement
-        if input.up.is_down {
-            map.tanks.get_mut(&playerid).unwrap().move_in_dir((0.,-1.));
-        }
-        if input.down.is_down {
-            map.tanks.get_mut(&playerid).unwrap().move_in_dir((0.,1.));
-        }
-        if input.left.is_down {
-            map.tanks.get_mut(&playerid).unwrap().move_in_dir((-1.,0.));
-        }
-        if input.right.is_down {
-            map.tanks.get_mut(&playerid).unwrap().move_in_dir((1.,0.));
-        }
+        if map.tanks.get(&playerid).is_some() {
+            //movement
+            if input.up.is_down {
+                map.tanks.get_mut(&playerid).unwrap().move_in_dir((0.,-1.), delta);
+            }
+            if input.down.is_down {
+                map.tanks.get_mut(&playerid).unwrap().move_in_dir((0.,1.), delta);
+            }
+            if input.left.is_down {
+                map.tanks.get_mut(&playerid).unwrap().move_in_dir((-1.,0.), delta);
+            }
+            if input.right.is_down {
+                map.tanks.get_mut(&playerid).unwrap().move_in_dir((1.,0.), delta);
+            }
 
-        //rotation
-        map.tanks.get_mut(&playerid).unwrap().rotate_to(camera.to_map_coords(input.mouse_pos));
+            //rotation
+            map.tanks.get_mut(&playerid).unwrap().rotate_to(camera.to_map_coords(input.mouse_pos));
 
-        //firing
-        if input.fire.is_down {
-            map.tanks.get_mut(&playerid).unwrap().fire(&mut map.bullets, playerid);
+            //firing
+            if input.fire.is_down {
+                map.tanks.get_mut(&playerid).unwrap().fire(&mut map.bullets, playerid);
+            }
         }
 
         // PHYSICS
@@ -705,7 +728,11 @@ fn main() {
 
 
         // CAMERA
-        camera.track(delta, &map.tanks.get(&camera.target_tank).expect("Failed to get the tank to track with camera").physics);
+
+        // track tg tank if it exists, otherwise don't move
+        if map.tanks.get(&camera.target_tank).is_some() {
+            camera.track(delta, &map.tanks.get(&camera.target_tank).unwrap().physics);
+        }
 
 
         // RENDER
@@ -735,9 +762,6 @@ fn main() {
         }
 
         canvas.present();
-
-        // Add a small delay to avoid using too much CPU
-        ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
 
         delta = Instant::now().duration_since(last_frame_start).as_micros();
     }
