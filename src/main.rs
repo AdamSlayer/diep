@@ -127,6 +127,8 @@ struct Turret {
     projectile_speed: f64,
     projectile_weight: f64,
     projectile_collision_size: f64,
+    projectile_hp_regen: f64,
+    projectile_hp: f64,
     /// in micros, first shot is immediatae
     reload_time: u128,
     /// mean in degrees, gaussian propability distribution
@@ -173,14 +175,15 @@ impl Turret {
             bullet_physics.weight = self.projectile_weight;
             bullet_physics.collision_size = self.projectile_collision_size;
             bullet_physics.push(fire_vector);
-            bullet_physics.x += fire_vector.0/20.;
-            bullet_physics.y += fire_vector.1/20.;
+            bullet_physics.x += self.relative_direction+tank_physics.rot.to_radians().sin()*(tank_physics.collision_size + self.projectile_collision_size)*1.01;
+            bullet_physics.y -= self.relative_direction+tank_physics.rot.to_radians().cos()*(tank_physics.collision_size + self.projectile_collision_size)*1.01;
+            bullet_physics.hp_regen = self.projectile_hp_regen;
+            bullet_physics.hp = self.projectile_hp;
 
             self.time_to_next_shot = self.reload_time;
 
             Some(Bullet {
                 physics: bullet_physics,
-                dead_speed: bullet_physics.speed() * 0.5,
                 source_tank_id: tank_id
             })
         }
@@ -286,8 +289,6 @@ impl Camera {
 #[derive(Debug)]
 struct Bullet {
     physics: Physics,
-    /// the speed at which the bullet will be removed
-    dead_speed: f64,
     source_tank_id: u128
 }
 impl Bullet {
@@ -297,7 +298,7 @@ impl Bullet {
             &texture, None,
             Rect::from_center(
                 Point::from(camera.to_screen_coords((self.physics.x, self.physics.y))), // set center position
-                30, 30  // set render width and height
+                self.physics.collision_size as u32*4, self.physics.collision_size as u32*4,  // set render width and height
             ),
             self.physics.rot, // set rotation
             Point::from((15,15)), // set center of rotation, in screen coordinates (not texture coordinates)
@@ -552,9 +553,6 @@ impl Map {
             }
         }
 
-        // removes all bullets with speed less than dead_speed
-        self.bullets.retain(|id, bullet| bullet.physics.speed() >= bullet.dead_speed);
-
         // spawn shapes
         if self.shapes.len() < self.shapes_max {
             self.shapes.insert(thread_rng().gen::<u128>(), Shape {
@@ -634,8 +632,21 @@ fn main() {
                 projectile_speed: 1000.,
                 projectile_weight: 1.,
                 projectile_collision_size: 5.,
+                projectile_hp_regen: -100.,
+                projectile_hp: 300.,
                 reload_time: 100_000,
                 inaccuracy: 2.,
+                relative_direction: 0.,
+                time_to_next_shot: 0
+            },
+            Turret {
+                projectile_speed: 4000.,
+                projectile_weight: 5.,
+                projectile_collision_size: 12.,
+                projectile_hp_regen: -500.,
+                projectile_hp: 1500.,
+                reload_time: 1_000_000,
+                inaccuracy: 0.,
                 relative_direction: 0.,
                 time_to_next_shot: 0
             }],
