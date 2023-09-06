@@ -67,17 +67,17 @@ impl Physics {
     }
     
     /// update velocity by friction, position/rotation by velocity, and hp by hp_regen
-    fn update(&mut self, delta: u128) {
-        self.x += self.xvel * (delta as f64 / 1_000_000.);
-        self.y += self.yvel * (delta as f64 / 1_000_000.);
-        self.rot += self.rotvel * (delta as f64 / 1_000_000.);
+    fn update(&mut self, delta: f64) {
+        self.x += self.xvel * (delta);
+        self.y += self.yvel * (delta);
+        self.rot += self.rotvel * (delta);
         self.rot = self.rot%360.;
 
-        self.xvel *= (-(delta as f64)/1_000_000.).exp();
-        self.yvel *= (-(delta as f64)/1_000_000.).exp();
-        self.rotvel *= (-(delta as f64)/1_000_000.).exp();
+        self.xvel *= (-delta*0.1).exp();
+        self.yvel *= (-delta*0.1).exp();
+        self.rotvel *= (-delta*0.1).exp();
 
-        self.hp = (self.hp + self.hp_regen*(delta as f64/1_000_000.)).min(self.max_hp);
+        self.hp = (self.hp + self.hp_regen*(delta)).min(self.max_hp);
     }
 
     /// returns the speed of the object - sqrt(xvel**2 + yvel**2)
@@ -90,17 +90,22 @@ impl Physics {
     }
 
     /// Only moves self, need to be called in reverse to move `b`
-    fn collide(&mut self, b: &Physics, delta: u128) {
+    fn collide(&mut self, b: &Physics, delta: f64) {
         if (self.collision_size + b.collision_size) > self.dist(&b) {
-            // how much the collision circles are overlaping
-            let s = delta as f64/1_000. *((self.collision_size + b.collision_size) - self.dist(&b));
+            // how much the collision circles are overlaping * b.weight * delta
+            let s = delta*131_072.;
+            self.xvel *= (-delta*4.).exp();
+            self.yvel *= (-delta*4.).exp();
             let n = normalize((self.x - b.x, self.y - b.y));
             self.push((n.0*s, n.1*s));
-            self.xvel *= (-((delta/100_000) as f64)).exp();
-            self.yvel *= (-((delta/100_000) as f64)).exp();
-            self.hp -= (s/1_000.).min(b.hp);
-            self.push_rot(b.speed()*angle_diff(f64::atan2(b.x - self.x, b.y - self.y).to_degrees(), f64::atan2((b.x + b.xvel) - (self.x + self.xvel), (b.y + b.yvel) - (self.y + self.yvel)).to_degrees())/-100.);
+            self.hp -= (s/1024.).min(b.hp);
+            self.push_rot(delta*b.speed()*angle_diff(f64::atan2(b.x - self.x, b.y - self.y).to_degrees(), f64::atan2((b.x + b.xvel) - (self.x + self.xvel), (b.y + b.yvel) - (self.y + self.yvel)).to_degrees())/-1.);
         }
+    }
+
+    /// Only checks if the object touch. For the collision to do anything use 'collide'
+    fn collides(&self, b: &Physics) -> bool {
+        (self.collision_size + b.collision_size) > self.dist(&b)
     }
 }
 
@@ -142,7 +147,7 @@ struct Turret {
     projectile_hp_regen: f64,
     projectile_hp: f64,
     /// in micros, first shot is immediatae
-    reload_time: u128,
+    reload_time: f64,
     /// mean in degrees, gaussian propability distribution
     /// also randomizes projectile speed, at rate 1 degree = 1% speed
     inaccuracy: f64,
@@ -151,13 +156,13 @@ struct Turret {
 
     // start of changing properties
 
-    time_to_next_shot: u128
+    time_to_next_shot: f64
 }
 impl Turret {
     /// Returns an Option<Bullet> if fired, and None otherwise.
     /// Tank physics can be physics of anything, theoretically allowing bullets of shapes to fire bullets too if they have a turret
     fn fire(&mut self, tank_physics: &Physics, tank_id: u128) -> Option<Bullet> {
-        if self.time_to_next_shot > 0 {
+        if self.time_to_next_shot > 0. {
             None
         } else {
             let random_speed: f64;
@@ -237,16 +242,25 @@ impl Tank {
         }
     }
 
-
-    fn move_in_dir(&mut self, dir: (f64, f64), delta: u128) {
+    /// `dir` doesn't need to be normalized
+    fn move_in_dir(&mut self, dir: (f64, f64), delta: f64) {
         // noramlize vector
         let magnitude = (dir.0 * dir.0 + dir.1 * dir.1).sqrt();
-        if magnitude != 0.0 {
-            let normalized_dir = (dir.0 / magnitude, dir.1 / magnitude);
-            self.physics.push((normalized_dir.0*self.power*delta as f64 / 1_000_000., normalized_dir.1*self.power*delta as f64 / 1_000_000.));
-        } else {
-            println!("attempt to move a tank in the direction (0.,0.)");
+        let normalized_dir = (dir.0 / magnitude, dir.1 / magnitude);
+        if (dir == (0., 0.)) || angle_diff(f64::atan2(dir.0, dir.1).to_degrees(), f64::atan2(self.physics.xvel, self.physics.yvel).to_degrees()).abs() > 90.0_f64 {
+            println!("brake");
+            self.physics.xvel *= (-delta*4.).exp();
+            self.physics.yvel *= (-delta*4.).exp();
+            if dir == (0., 0.) {
+                let magnitude = (self.physics.xvel * self.physics.xvel + self.physics.yvel * self.physics.yvel).sqrt();
+                if magnitude != 0. {
+                    let normalized_vel = (self.physics.xvel / magnitude, self.physics.yvel / magnitude);
+                    self.physics.push((-normalized_vel.0*self.power*delta, -normalized_vel.1*self.power*delta));
+                }
+                return
+            }
         }
+        self.physics.push((normalized_dir.0*self.power*delta, normalized_dir.1*self.power*delta));
     }
 
     /// Applies rotation force to the tank, rotating it towards a point over time. `to` is on map coordinates
@@ -295,7 +309,7 @@ impl Camera {
         (x, y)
     }
 
-    fn track(&mut self, delta: u128, tg: &Physics) {
+    fn track(&mut self, delta: f64, tg: &Physics) {
         self.x = tg.x;
         self.y = tg.y;
     }
@@ -435,8 +449,8 @@ impl Map {
     /// Makes an empty map. Does not add the player tank or anything else.
     fn new() -> Self {
         Map {
-            map_size: (5000., 5000.,),
-            shapes_max: 2500,
+            map_size: (5_000., 5_000.,),
+            shapes_max: 2_500,
             shapes: HashMap::new(),
             tanks: HashMap::new(),
             bullets: HashMap::new(),
@@ -490,7 +504,7 @@ impl Map {
     /// 
     /// Randomly spawns shapes
     /// 
-    fn update_physics(&mut self, delta: u128) {
+    fn update_physics(&mut self, delta: f64) {
         // things that happen for one (uprate physics, wall collision)
         {
             // mutable iterator over the physics' of all tanks, bullets and shapes
@@ -501,14 +515,14 @@ impl Map {
             for o in combined_iter_mut {
                 o.update(delta);
                 if o.x.abs() > self.map_size.0 {
-                    o.push(((self.map_size.0*o.x.signum() - o.x)*delta as f64/1000., 0.));
-                    o.xvel *= (-(delta as f64)/10_000. / o.weight).exp();
-                    o.yvel *= (-(delta as f64)/10_000. / o.weight).exp();
+                    o.push(((self.map_size.0*o.x.signum() - o.x)*delta*1000., 0.));
+                    o.xvel *= (-(delta)*100. / o.weight).exp();
+                    o.yvel *= (-(delta)*100. / o.weight).exp();
                 }
                 if o.y.abs() > self.map_size.1 {
-                    o.push((0., (self.map_size.1*o.y.signum() - o.y)*delta as f64/1000.));
-                    o.xvel *= (-(delta as f64)/10_000. / o.weight).exp();
-                    o.yvel *= (-(delta as f64)/10_000. / o.weight).exp();
+                    o.push((0., (self.map_size.1*o.y.signum() - o.y)*delta*1000.));
+                    o.xvel *= (-(delta)*100. / o.weight).exp();
+                    o.yvel *= (-(delta)*100. / o.weight).exp();
                 }
             }
 
@@ -576,13 +590,15 @@ impl Map {
                 if b {
                     // perform a collision check between the added object and all active objects (both ways)
                     for a in active.iter() {
-                        // active object physics
-                        let ap = (self.get_physics(a).unwrap()).clone();
-                        // key object physics
-                        let mut kp = (self.get_physics_mut(&k).unwrap()).clone();
+                        if self.get_physics(&k).unwrap().collides(self.get_physics(a).unwrap()) {
+                            // active object physics
+                            let ap = (self.get_physics(a).unwrap()).clone();
+                            // key object physics
+                            let mut kp = (self.get_physics(&k).unwrap()).clone();
 
-                        self.get_physics_mut(&k).unwrap().collide(&ap, delta);                       
-                        self.get_physics_mut(&a).unwrap().collide(&mut kp, delta);
+                            self.get_physics_mut(&k).unwrap().collide(&ap, delta);                       
+                            self.get_physics_mut(&a).unwrap().collide(&mut kp, delta);
+                        }
                     }
                     // add the object at the end to prevent collision with itself
                     active.insert(k);
@@ -591,18 +607,20 @@ impl Map {
                 }
             }
 
+
+
             
         }
 
         for tank in self.tanks.values_mut() {
             for turret in &mut tank.turrets {
                 // substracts delta from time to next shot, but doesn't go below zero
-                turret.time_to_next_shot = turret.time_to_next_shot - turret.time_to_next_shot.min(delta);
+                turret.time_to_next_shot -= turret.time_to_next_shot.min(delta);
             }
         }
 
         // spawn shapes
-        if self.shapes.len() < self.shapes_max {
+        while self.shapes.len() < self.shapes_max {
             // from 0.6 to 1.4, squared 0.36 to 1.96
             let mut size = thread_rng().gen::<f64>() * 0.8 + 0.6;
             let is_hexagon = thread_rng().gen_bool(0.1);
@@ -718,11 +736,11 @@ fn main() {
                 projectile_hp_regen: -0.5,
                 /// also the max damage
                 projectile_hp: 1.,
-                /// should be >33_000 (30 shots per second), because more shots/second than fps makes glitches
-                reload_time: 500_000,
+                /// should be >0.033 (30 shots per second), because more shots/second than fps makes glitches
+                reload_time: 0.05,
                 inaccuracy: 1.,
                 relative_direction: 0.,
-                time_to_next_shot: 0
+                time_to_next_shot: 0.
             }],
             power: 30000.,
             rot_power: 30000.,
@@ -733,7 +751,7 @@ fn main() {
 
     let mut last_frame_start;
     // How long the last frame took, in micros, 1 millisecond for the first frame
-    let mut delta = 1_000;
+    let mut delta = 0.01;
 
     'running: loop {
         last_frame_start = Instant::now();
@@ -785,17 +803,33 @@ fn main() {
 
         if map.tanks.get(&playerid).is_some() {
             //movement
-            if input.up.is_down {
+            if input.up.is_down && input.left.is_down && !input.down.is_down && !input.right.is_down {
+                map.tanks.get_mut(&playerid).unwrap().move_in_dir((-0.707,-0.707), delta);
+            }
+            else if input.down.is_down && input.left.is_down && !input.up.is_down && !input.right.is_down {
+                map.tanks.get_mut(&playerid).unwrap().move_in_dir((-0.707,0.707), delta);
+            }
+            else if input.up.is_down && input.right.is_down && !input.down.is_down && !input.left.is_down {
+                map.tanks.get_mut(&playerid).unwrap().move_in_dir((0.707,-0.707), delta);
+            }
+            else if input.down.is_down && input.right.is_down && !input.up.is_down && !input.left.is_down {
+                map.tanks.get_mut(&playerid).unwrap().move_in_dir((0.707,0.707), delta);
+            }
+            else if input.up.is_down {
                 map.tanks.get_mut(&playerid).unwrap().move_in_dir((0.,-1.), delta);
             }
-            if input.down.is_down {
+            else if input.down.is_down {
                 map.tanks.get_mut(&playerid).unwrap().move_in_dir((0.,1.), delta);
             }
-            if input.left.is_down {
+            else if input.left.is_down {
                 map.tanks.get_mut(&playerid).unwrap().move_in_dir((-1.,0.), delta);
             }
-            if input.right.is_down {
+            else if input.right.is_down {
                 map.tanks.get_mut(&playerid).unwrap().move_in_dir((1.,0.), delta);
+            }
+            else {
+                // brake
+                map.tanks.get_mut(&playerid).unwrap().move_in_dir((0.,0.), delta);
             }
 
             //rotation
@@ -849,7 +883,7 @@ fn main() {
 
         canvas.present();
 
-        delta = Instant::now().duration_since(last_frame_start).as_micros();
-        println!("delta: {}", delta);
+        delta = Instant::now().duration_since(last_frame_start).as_secs_f64();
+        println!("fps: {:.0}", 1./delta);
     }
 }
