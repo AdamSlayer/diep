@@ -606,8 +606,13 @@ impl Map {
             // from 0.6 to 1.4, squared 0.36 to 1.96
             let mut size = thread_rng().gen::<f64>() * 0.8 + 0.6;
             let is_hexagon = thread_rng().gen_bool(0.1);
+            let is_triangle = thread_rng().gen_bool(0.4);
             if is_hexagon {
                 size *= 4.;
+            }
+
+            if is_triangle && !is_hexagon {
+                size *= 1.2;
             }
             
             self.shapes.insert(thread_rng().gen::<u128>(), Shape {
@@ -621,11 +626,25 @@ impl Map {
                     rotvel: 0.,
                     collision_size: 20. * size,
                     hp: 0.,
-                    max_hp: 10. * size.powi(2),
-                    hp_regen: 1. * size.powi(2),
+                    max_hp: if is_hexagon {
+                        30. * size.powi(2)
+                    } else if is_triangle{
+                        3.3 * size.powi(2)
+                    } else {
+                        10. * size.powi(2)
+                    },
+                    hp_regen: if is_hexagon {
+                        0.1 * size.powi(2)
+                    } else if is_triangle{
+                        2.5 * size.powi(2)
+                    } else {
+                        0.5 * size.powi(2)
+                    },
                 },
                 texture: if is_hexagon {
                     "hexagon".to_owned()
+                } else if is_triangle{
+                    "triangle".to_owned()
                 } else {
                     "square".to_owned()
                 },
@@ -659,6 +678,7 @@ fn main() {
     textures.insert("bullet".to_owned(), texture_creator.load_texture("textures/bullet.png").unwrap());
     textures.insert("square".to_owned(), texture_creator.load_texture("textures/square.png").unwrap());
     textures.insert("hexagon".to_owned(), texture_creator.load_texture("textures/hexagon.png").unwrap());
+    textures.insert("triangle".to_owned(), texture_creator.load_texture("textures/triangle.png").unwrap());
 
     // Initialize my own things
     let mut map = Map::new();
