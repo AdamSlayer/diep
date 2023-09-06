@@ -431,6 +431,75 @@ impl Input {
     }
 }
 
+/// This is an AI for controlling a tank. Just add the tank ID to the `tankids` HashSet to let this AI control it.
+/// 
+/// Make sure no tank is controlled by multiple AIs. Tanks are automatically removed when they die.
+/// 
+/// You can use multiple AIs to control tanks on the map, each with different settings.
+struct TankAI {
+    /// IDs of all the tanks this AI controls. Make sure no tank is controlled by multiple AIs.
+    tankids: HashSet<u128>,
+}
+impl TankAI {
+    /// Controls all the tanks in it's `tankids` - makes them move and shoot based on `Map`
+    ///
+    /// Needs to access the whole `Map` mutably to modify the tanks it controls.
+    /// 
+    fn control(&mut self, tanks: &mut HashMap<u128, Tank>, shapes: &mut HashMap<u128, Shape>, mut bullets: &mut HashMap<u128, Bullet>, delta: f64) {
+        let mut ids_to_remove = vec![];
+        for id in &self.tankids {
+            if tanks.get(&id).is_some() {
+                //movement
+                // if input.up.is_down && input.left.is_down && !input.down.is_down && !input.right.is_down {
+                //     map.tanks.get_mut(&id).unwrap().move_in_dir((-0.707,-0.707), delta);
+                // }
+                // else if input.down.is_down && input.left.is_down && !input.up.is_down && !input.right.is_down {
+                //     map.tanks.get_mut(&id).unwrap().move_in_dir((-0.707,0.707), delta);
+                // }
+                // else if input.up.is_down && input.right.is_down && !input.down.is_down && !input.left.is_down {
+                //     map.tanks.get_mut(&id).unwrap().move_in_dir((0.707,-0.707), delta);
+                // }
+                // else if input.down.is_down && input.right.is_down && !input.up.is_down && !input.left.is_down {
+                //     map.tanks.get_mut(&id).unwrap().move_in_dir((0.707,0.707), delta);
+                // }
+                // else if input.up.is_down {
+                //     map.tanks.get_mut(&id).unwrap().move_in_dir((0.,-1.), delta);
+                // }
+                // else if input.down.is_down {
+                //     map.tanks.get_mut(&id).unwrap().move_in_dir((0.,1.), delta);
+                // }
+                // else if input.left.is_down {
+                //     map.tanks.get_mut(&id).unwrap().move_in_dir((-1.,0.), delta);
+                // }
+                // else if input.right.is_down {
+                //     map.tanks.get_mut(&id).unwrap().move_in_dir((1.,0.), delta);
+                // }
+                // else {
+                    // brake
+                    // map.tanks.get_mut(&id).unwrap().move_in_dir((0.,0.), delta);
+                // }
+    
+                //rotation
+                // map.tanks.get_mut(&id).unwrap().rotate_to(camera.to_map_coords(input.mouse_pos));
+    
+                //firing
+                // map.tanks.get_mut(&id).unwrap().fire(&mut map.bullets, id);
+
+                // prototype
+                tanks.get_mut(&id).unwrap().rotate_to((0.,0.));
+                tanks.get_mut(&id).unwrap().move_in_dir((0.,0.), delta);
+                tanks.get_mut(&id).unwrap().fire(&mut bullets, *id);
+            } else {
+                // Tank with id 'id' is not in 'tanks', it appearently died. Remove from list of controlled tanks
+                ids_to_remove.push(*id);
+            }
+        }
+        for id in ids_to_remove {
+            self.tankids.remove(&id);
+        }
+    }
+}
+
 /// Main struct that stores everything - tanks, shapes, bullets, walls etc.
 /// Does not store information about which tank is the player.
 struct Map {
@@ -443,7 +512,9 @@ struct Map {
     /// All the tanks on the map, including player, bots, bosses etc.
     tanks: HashMap<u128, Tank>, // hashmap because of quicker searching for the tank when it's bullet kills something
     /// All the things shot by tanks - bullets or drones. Projectiles that make other things (rocket laucher tank, factory tank) aren't supported
-    bullets: HashMap<u128, Bullet> // hashmap to easily iterate over all the tank's bullets, for example when the tank dies, or when there would be a shield that only blocks some tank's bullets (teams?)
+    bullets: HashMap<u128, Bullet>, // hashmap to easily iterate over all the tank's bullets, for example when the tank dies, or when there would be a shield that only blocks some tank's bullets (teams?)
+    /// a Vec<> of all the different AIs on the map. Each AI controls some tanks, 
+    tankais: Vec<TankAI>
 }
 impl Map {
     /// Makes an empty map. Does not add the player tank or anything else.
@@ -454,6 +525,9 @@ impl Map {
             shapes: HashMap::new(),
             tanks: HashMap::new(),
             bullets: HashMap::new(),
+            tankais: vec![TankAI {
+                tankids: HashSet::new()
+            }]
         }
     }
 
@@ -749,6 +823,49 @@ fn main() {
         }
     );
 
+    let ai_id = thread_rng().gen::<u128>();
+    map.tankais[0].tankids.insert(ai_id);
+
+    // add another tank, AI controlled
+    // tanks will be network or AI controlled on the server (also player controlled on LAN multiplayer server), and player or AI controlled in singleplayer
+    map.tanks.insert(
+        ai_id,
+        Tank {
+            physics: Physics {
+                x: 100.,
+                y: 100.,
+                xvel: 0.,
+                yvel: 0.,
+                weight: 100.,
+                rot: 0.,
+                rotvel: 0.,
+                collision_size: 35.,
+                hp: 100.,
+                max_hp: 100.,
+                hp_regen: 10.,
+            },
+            turrets: vec![Turret {
+                /// its actually the force of impulse. should be about 100x the weight for normal speed
+                projectile_speed: 1_000.,
+                /// weight and hp should be similar. less weight = more bouncy, more weight = more penetration
+                projectile_weight: 1.,
+                projectile_collision_size: 10.,
+                projectile_hp_regen: -0.5,
+                /// also the max damage
+                projectile_hp: 1.,
+                /// should be >0.033 (30 shots per second), because more shots/second than fps makes glitches
+                reload_time: 0.05,
+                inaccuracy: 1.,
+                relative_direction: 0.,
+                time_to_next_shot: 0.
+            }],
+            power: 30000.,
+            rot_power: 30000.,
+            bullet_ids: vec![],
+            texture: "basic".to_owned(),
+        }
+    );
+
     let mut last_frame_start;
     // How long the last frame took, in micros, 1 millisecond for the first frame
     let mut delta = 0.01;
@@ -839,6 +956,12 @@ fn main() {
             if input.fire.is_down {
                 map.tanks.get_mut(&playerid).unwrap().fire(&mut map.bullets, playerid);
             }
+        }
+
+        // AI CONTROL
+
+        for ai in &mut map.tankais {
+            ai.control(&mut map.tanks, &mut map.shapes, &mut map.bullets, delta);
         }
 
         // PHYSICS
