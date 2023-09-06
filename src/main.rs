@@ -92,33 +92,45 @@ impl Physics {
     /// Only moves self, need to be called in reverse to move `b`
     fn collide(&mut self, b: &Physics, delta: u128) {
         if (self.collision_size + b.collision_size) > self.dist(&b) {
-            let s = 1_000_000./delta as f64*((self.collision_size + b.collision_size) - self.dist(&b));
+            // how much the collision circles are overlaping
+            let s = delta as f64/1_000. *((self.collision_size + b.collision_size) - self.dist(&b));
             let n = normalize((self.x - b.x, self.y - b.y));
             self.push((n.0*s, n.1*s));
             self.xvel *= (-((delta/100_000) as f64)).exp();
             self.yvel *= (-((delta/100_000) as f64)).exp();
-            // collision damage is the length of the difference of the speed vectors
-            self.hp -= ((b.xvel - self.xvel).powi(2) + (b.yvel - self.yvel).powi(2)).sqrt();
+            self.hp -= (s/1_000.).min(b.hp);
+            self.push_rot(b.speed()*angle_diff(f64::atan2(b.x - self.x, b.y - self.y).to_degrees(), f64::atan2((b.x + b.xvel) - (self.x + self.xvel), (b.y + b.yvel) - (self.y + self.yvel)).to_degrees())/-100.);
         }
     }
 }
 
 /// Square, triangle, pentagon
 struct Shape {
-    physics: Physics
+    physics: Physics,
+    /// Also affects behavour
+    texture: String
 }
 impl Shape {
     fn render(&self, canvas: &mut Canvas<Window>, camera: &Camera, textures: &HashMap<String, Texture>) {
-        let texture = textures.get("shape").unwrap();
+        let texture = textures.get(&self.texture).unwrap();
+        let shape_screen_pos = camera.to_screen_coords((self.physics.x, self.physics.y));
+
         canvas.copy_ex(
             &texture, None,
             Rect::from_center(
-                Point::from(camera.to_screen_coords((self.physics.x, self.physics.y))), // set center position
-                100, 100  // set render width and height
+                Point::from(shape_screen_pos), // set center position
+                self.physics.collision_size as u32 * 4, self.physics.collision_size as u32 * 4  // set render width and height
             ),
             self.physics.rot, // set rotation
-            Point::from((50,50)), // set center of rotation, in screen coordinates (not texture coordinates)
+            Point::from((self.physics.collision_size as i32 * 2, self.physics.collision_size as i32 * 2)), // set center of rotation, in screen coordinates (not texture coordinates)
             false, false).unwrap();
+        
+        if self.physics.hp < self.physics.max_hp {
+            canvas.set_draw_color(Color::RGB(63,63,63));
+            canvas.draw_line((shape_screen_pos.0 - 50, shape_screen_pos.1 - 70), (shape_screen_pos.0 + 50, shape_screen_pos.1 - 70)).unwrap();
+            canvas.set_draw_color(Color::RGB(0,255,0));
+            canvas.draw_line((shape_screen_pos.0 - 50, shape_screen_pos.1 - 70), (shape_screen_pos.0 - 50 + (self.physics.hp/self.physics.max_hp*100.) as i32, shape_screen_pos.1 - 70)).unwrap();
+        }
     }
 }
 
@@ -184,7 +196,8 @@ impl Turret {
 
             Some(Bullet {
                 physics: bullet_physics,
-                source_tank_id: tank_id
+                source_tank_id: tank_id,
+                texture: "bullet".to_owned()
             })
         }
     }
@@ -199,26 +212,29 @@ struct Tank {
     rot_power: f64,
     turrets: Vec<Turret>,
     bullet_ids: Vec<u128>,
+    texture: String
 }
 impl Tank {
     fn render(&self, canvas: &mut Canvas<Window>, camera: &Camera, textures: &HashMap<String, Texture>) {
-        let texture = textures.get("tank").unwrap();
+        let texture = textures.get(&self.texture).unwrap();
         let tank_screen_pos = camera.to_screen_coords((self.physics.x, self.physics.y));
 
         canvas.copy_ex(
             &texture, None,
             Rect::from_center(
                 Point::from(tank_screen_pos), // set center position
-                100, 100  // set render width and height
+                self.physics.collision_size as u32 * 4, self.physics.collision_size as u32 * 4  // set render width and height
             ),
             self.physics.rot, // set rotation
-            Point::from((50,50)), // set center of rotation, in screen coordinates (not texture coordinates)
+            Point::from((self.physics.collision_size as i32 * 2,self.physics.collision_size as i32 * 2)), // set center of rotation, in screen coordinates (not texture coordinates)
             false, false).unwrap();
         
+        if self.physics.hp < self.physics.max_hp {
             canvas.set_draw_color(Color::RGB(63,63,63));
             canvas.draw_line((tank_screen_pos.0 - 50, tank_screen_pos.1 - 70), (tank_screen_pos.0 + 50, tank_screen_pos.1 - 70)).unwrap();
             canvas.set_draw_color(Color::RGB(0,255,0));
             canvas.draw_line((tank_screen_pos.0 - 50, tank_screen_pos.1 - 70), (tank_screen_pos.0 - 50 + (self.physics.hp/self.physics.max_hp*100.) as i32, tank_screen_pos.1 - 70)).unwrap();
+        }
     }
 
 
@@ -289,11 +305,12 @@ impl Camera {
 #[derive(Debug)]
 struct Bullet {
     physics: Physics,
-    source_tank_id: u128
+    source_tank_id: u128,
+    texture: String
 }
 impl Bullet {
     fn render(&self, canvas: &mut Canvas<Window>, camera: &Camera, textures: &HashMap<String, Texture>) {
-        let texture = textures.get("bullet").unwrap();
+        let texture = textures.get(&self.texture).unwrap();
         canvas.copy_ex(
             &texture, None,
             Rect::from_center(
@@ -301,7 +318,7 @@ impl Bullet {
                 self.physics.collision_size as u32*4, self.physics.collision_size as u32*4,  // set render width and height
             ),
             self.physics.rot, // set rotation
-            Point::from((15,15)), // set center of rotation, in screen coordinates (not texture coordinates)
+            Point::from((self.physics.collision_size as i32 * 2, self.physics.collision_size as i32 * 2)), // set center of rotation, in screen coordinates (not texture coordinates)
             false, false).unwrap();
     }
 }
@@ -418,8 +435,8 @@ impl Map {
     /// Makes an empty map. Does not add the player tank or anything else.
     fn new() -> Self {
         Map {
-            map_size: (2000., 2000.,),
-            shapes_max: 400,
+            map_size: (5000., 5000.,),
+            shapes_max: 2500,
             shapes: HashMap::new(),
             tanks: HashMap::new(),
             bullets: HashMap::new(),
@@ -498,6 +515,37 @@ impl Map {
             // remove <0 hp objects
             self.tanks.retain(|_, v| v.physics.hp > 0.);
             self.bullets.retain(|_, v| v.physics.hp > 0.);
+
+            // for shapes, hexagons must be removed differently because they split into squares
+
+            // find hexes that died
+            let mut hex_to_remove = Vec::new();
+            for (id, shape) in self.shapes.iter() {
+                if shape.texture == "hexagon" && shape.physics.hp <= 0. {
+                    hex_to_remove.push(id.clone());
+                }
+            }
+
+            for id in hex_to_remove {
+                // handle dead hexes here
+                for _ in 0..6 {
+                    let mut s_physics = self.shapes.get(&id).unwrap().physics.clone();
+                    let size = (thread_rng().gen::<f64>()*0.4+0.8) * s_physics.collision_size/20./4.;
+                    s_physics.collision_size = 20.*size;
+                    s_physics.weight = 100. * size.powi(2);
+                    s_physics.max_hp = 10. * size.powi(2);
+                    s_physics.hp_regen = 1. * size.powi(2);
+                    s_physics.hp = s_physics.max_hp;
+                    s_physics.x += (thread_rng().gen::<f64>()-0.5) * size * 140.;
+                    s_physics.y += (thread_rng().gen::<f64>()-0.5) * size * 140.;
+                    self.shapes.insert(thread_rng().gen(), Shape {
+                        physics: s_physics,
+                        texture: "square".to_owned(),
+                    });
+                }
+            }
+
+            // remove all dead shapes now
             self.shapes.retain(|_, v| v.physics.hp > 0.);
         }
         // things that happen for pairs, only one is mutable (collisions)
@@ -530,11 +578,11 @@ impl Map {
                     for a in active.iter() {
                         // active object physics
                         let ap = (self.get_physics(a).unwrap()).clone();
-                        self.get_physics_mut(&k).unwrap().collide(&ap, delta);
-
                         // key object physics
-                        let kp = (self.get_physics(&k).unwrap()).clone();
-                        self.get_physics_mut(&a).unwrap().collide(&kp, delta);
+                        let mut kp = (self.get_physics_mut(&k).unwrap()).clone();
+
+                        self.get_physics_mut(&k).unwrap().collide(&ap, delta);                       
+                        self.get_physics_mut(&a).unwrap().collide(&mut kp, delta);
                     }
                     // add the object at the end to prevent collision with itself
                     active.insert(k);
@@ -555,19 +603,31 @@ impl Map {
 
         // spawn shapes
         if self.shapes.len() < self.shapes_max {
+            // from 0.6 to 1.4, squared 0.36 to 1.96
+            let mut size = thread_rng().gen::<f64>() * 0.8 + 0.6;
+            let is_hexagon = thread_rng().gen_bool(0.1);
+            if is_hexagon {
+                size *= 4.;
+            }
+            
             self.shapes.insert(thread_rng().gen::<u128>(), Shape {
                 physics: Physics {
                     x: thread_rng().gen_range(-self.map_size.0..self.map_size.0),
                     y: thread_rng().gen_range(-self.map_size.1..self.map_size.1),
                     xvel: 0.,
                     yvel: 0.,
-                    weight: 100.,
+                    weight: 100. * size.powi(2),
                     rot: thread_rng().gen::<f64>()*360.,
                     rotvel: 0.,
-                    collision_size: 20.,
-                    hp: 10000.,
-                    max_hp: 10000.,
-                    hp_regen: 100.,
+                    collision_size: 20. * size,
+                    hp: 0.,
+                    max_hp: 10. * size.powi(2),
+                    hp_regen: 1. * size.powi(2),
+                },
+                texture: if is_hexagon {
+                    "hexagon".to_owned()
+                } else {
+                    "square".to_owned()
                 },
             });
         }
@@ -595,9 +655,10 @@ fn main() {
     let texture_creator = canvas.texture_creator();
     // HashMap of all the textures used in the game. Later will read all textures form the textures folder and add them to the hashmap by the filename without the extension
     let mut textures: HashMap<String, Texture> = HashMap::new();
-    textures.insert("tank".to_owned(), texture_creator.load_texture("textures/t.png").unwrap());
-    textures.insert("bullet".to_owned(), texture_creator.load_texture("textures/b.png").unwrap());
-    textures.insert("shape".to_owned(), texture_creator.load_texture("textures/s.png").unwrap());
+    textures.insert("basic".to_owned(), texture_creator.load_texture("textures/basic.png").unwrap());
+    textures.insert("bullet".to_owned(), texture_creator.load_texture("textures/bullet.png").unwrap());
+    textures.insert("square".to_owned(), texture_creator.load_texture("textures/square.png").unwrap());
+    textures.insert("hexagon".to_owned(), texture_creator.load_texture("textures/hexagon.png").unwrap());
 
     // Initialize my own things
     let mut map = Map::new();
@@ -622,37 +683,31 @@ fn main() {
                 yvel: 0.,
                 weight: 100.,
                 rot: 0.,
-                rotvel: 9000.,
+                rotvel: 0.,
                 collision_size: 35.,
-                hp: 10000.,
-                max_hp: 10000.,
-                hp_regen: 100.,
+                hp: 100.,
+                max_hp: 100.,
+                hp_regen: 10.,
             },
             turrets: vec![Turret {
-                projectile_speed: 1000.,
+                /// its actually the force of impulse. should be about 100x the weight for normal speed
+                projectile_speed: 1_000.,
+                /// weight and hp should be similar. less weight = more bouncy, more weight = more penetration
                 projectile_weight: 1.,
-                projectile_collision_size: 5.,
-                projectile_hp_regen: -100.,
-                projectile_hp: 300.,
-                reload_time: 100_000,
-                inaccuracy: 2.,
-                relative_direction: 0.,
-                time_to_next_shot: 0
-            },
-            Turret {
-                projectile_speed: 4000.,
-                projectile_weight: 5.,
-                projectile_collision_size: 12.,
-                projectile_hp_regen: -500.,
-                projectile_hp: 1500.,
-                reload_time: 1_000_000,
-                inaccuracy: 0.,
+                projectile_collision_size: 10.,
+                projectile_hp_regen: -0.5,
+                /// also the max damage
+                projectile_hp: 1.,
+                /// should be >33_000 (30 shots per second), because more shots/second than fps makes glitches
+                reload_time: 500_000,
+                inaccuracy: 1.,
                 relative_direction: 0.,
                 time_to_next_shot: 0
             }],
             power: 30000.,
             rot_power: 30000.,
             bullet_ids: vec![],
+            texture: "basic".to_owned(),
         }
     );
 
@@ -775,5 +830,6 @@ fn main() {
         canvas.present();
 
         delta = Instant::now().duration_since(last_frame_start).as_micros();
+        println!("delta: {}", delta);
     }
 }
