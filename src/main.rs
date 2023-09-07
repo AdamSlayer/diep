@@ -73,9 +73,9 @@ impl Physics {
         self.rot += self.rotvel * (delta);
         self.rot = self.rot%360.;
 
-        self.xvel *= (-delta*0.1).exp();
-        self.yvel *= (-delta*0.1).exp();
-        self.rotvel *= (-delta*0.1).exp();
+        self.xvel *= (-delta*0.5).exp();
+        self.yvel *= (-delta*0.5).exp();
+        self.rotvel *= (-delta*10.).exp();
 
         self.hp = (self.hp + self.hp_regen*(delta)).min(self.max_hp);
     }
@@ -266,7 +266,7 @@ impl Tank {
     /// Applies rotation force to the tank, rotating it towards a point over time. `to` is on map coordinates
     fn rotate_to(&mut self, to: (f64, f64)) {
         let tg_angle = -f64::atan2(self.physics.x - to.0, self.physics.y - to.1).to_degrees();
-        self.physics.push_rot(angle_diff(self.physics.rot + self.physics.rotvel/2., tg_angle)/180.*self.rot_power);
+        self.physics.push_rot(angle_diff(self.physics.rot + self.physics.rotvel/4., tg_angle)/180.*self.rot_power);
     }
 
     /// Fires from all the tank's reloaded turrets
@@ -439,6 +439,10 @@ impl Input {
 struct TankAI {
     /// IDs of all the tanks this AI controls. Make sure no tank is controlled by multiple AIs.
     tankids: HashSet<u128>,
+    /// how far away the target can be for the tank to attack
+    range: f64,
+    /// how fast the bullets are, used for aiming. projectile_speed/projectile_weight of the turret
+    bullet_speed: f64,
 }
 impl TankAI {
     /// Controls all the tanks in it's `tankids` - makes them move and shoot based on `Map`
@@ -449,46 +453,23 @@ impl TankAI {
         let mut ids_to_remove = vec![];
         for id in &self.tankids {
             if tanks.get(&id).is_some() {
-                //movement
-                // if input.up.is_down && input.left.is_down && !input.down.is_down && !input.right.is_down {
-                //     map.tanks.get_mut(&id).unwrap().move_in_dir((-0.707,-0.707), delta);
-                // }
-                // else if input.down.is_down && input.left.is_down && !input.up.is_down && !input.right.is_down {
-                //     map.tanks.get_mut(&id).unwrap().move_in_dir((-0.707,0.707), delta);
-                // }
-                // else if input.up.is_down && input.right.is_down && !input.down.is_down && !input.left.is_down {
-                //     map.tanks.get_mut(&id).unwrap().move_in_dir((0.707,-0.707), delta);
-                // }
-                // else if input.down.is_down && input.right.is_down && !input.up.is_down && !input.left.is_down {
-                //     map.tanks.get_mut(&id).unwrap().move_in_dir((0.707,0.707), delta);
-                // }
-                // else if input.up.is_down {
-                //     map.tanks.get_mut(&id).unwrap().move_in_dir((0.,-1.), delta);
-                // }
-                // else if input.down.is_down {
-                //     map.tanks.get_mut(&id).unwrap().move_in_dir((0.,1.), delta);
-                // }
-                // else if input.left.is_down {
-                //     map.tanks.get_mut(&id).unwrap().move_in_dir((-1.,0.), delta);
-                // }
-                // else if input.right.is_down {
-                //     map.tanks.get_mut(&id).unwrap().move_in_dir((1.,0.), delta);
-                // }
-                // else {
-                    // brake
-                    // map.tanks.get_mut(&id).unwrap().move_in_dir((0.,0.), delta);
-                // }
-    
-                //rotation
-                // map.tanks.get_mut(&id).unwrap().rotate_to(camera.to_map_coords(input.mouse_pos));
-    
-                //firing
-                // map.tanks.get_mut(&id).unwrap().fire(&mut map.bullets, id);
+                // search for nearest tank
+                let mut closest_id = 0_u128;
+                let mut closest_dist = self.range;
+                for (oid, tank) in tanks.iter() {
+                    if tank.physics.dist(&tanks.get(id).unwrap().physics) < closest_dist && id != oid {
+                        closest_dist = tank.physics.dist(&tanks.get(id).unwrap().physics);
+                        closest_id = *oid;
+                    }
+                }
+                if closest_dist < self.range {
+                    let tg_pos = (tanks.get(&closest_id).unwrap().physics.x, tanks.get(&closest_id).unwrap().physics.y);
+                    let tg_vel = (tanks.get(&closest_id).unwrap().physics.xvel * ((closest_dist/(0.6 * self.bullet_speed)).exp()) / 3.0, tanks.get(&closest_id).unwrap().physics.yvel * ((closest_dist/(0.6 * self.bullet_speed)).exp()) / 3.0);
+                    tanks.get_mut(id).unwrap().rotate_to((tg_pos.0 + tg_vel.0, tg_pos.1 + tg_vel.1));
+                    tanks.get_mut(id).unwrap().fire(&mut bullets, *id);
+                }
 
-                // prototype
-                tanks.get_mut(&id).unwrap().rotate_to((0.,0.));
-                tanks.get_mut(&id).unwrap().move_in_dir((0.,0.), delta);
-                tanks.get_mut(&id).unwrap().fire(&mut bullets, *id);
+                tanks.get_mut(id).unwrap().move_in_dir((0.,0.), delta);
             } else {
                 // Tank with id 'id' is not in 'tanks', it appearently died. Remove from list of controlled tanks
                 ids_to_remove.push(*id);
@@ -521,12 +502,14 @@ impl Map {
     fn new() -> Self {
         Map {
             map_size: (5_000., 5_000.,),
-            shapes_max: 2_500,
+            shapes_max: 500,
             shapes: HashMap::new(),
             tanks: HashMap::new(),
             bullets: HashMap::new(),
             tankais: vec![TankAI {
-                tankids: HashSet::new()
+                tankids: HashSet::new(),
+                range: 2000.,
+                bullet_speed: 2000.
             }]
         }
     }
@@ -817,7 +800,7 @@ fn main() {
                 time_to_next_shot: 0.
             }],
             power: 30000.,
-            rot_power: 30000.,
+            rot_power: 50000.,
             bullet_ids: vec![],
             texture: "basic".to_owned(),
         }
@@ -846,7 +829,7 @@ fn main() {
             },
             turrets: vec![Turret {
                 /// its actually the force of impulse. should be about 100x the weight for normal speed
-                projectile_speed: 1_000.,
+                projectile_speed: 2_000.,
                 /// weight and hp should be similar. less weight = more bouncy, more weight = more penetration
                 projectile_weight: 1.,
                 projectile_collision_size: 10.,
@@ -854,13 +837,13 @@ fn main() {
                 /// also the max damage
                 projectile_hp: 1.,
                 /// should be >0.033 (30 shots per second), because more shots/second than fps makes glitches
-                reload_time: 0.05,
+                reload_time: 0.09,
                 inaccuracy: 1.,
                 relative_direction: 0.,
                 time_to_next_shot: 0.
             }],
             power: 30000.,
-            rot_power: 30000.,
+            rot_power: 50000.,
             bullet_ids: vec![],
             texture: "basic".to_owned(),
         }
