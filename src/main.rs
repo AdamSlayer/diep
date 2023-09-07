@@ -25,11 +25,14 @@ fn angle_diff(a: f64, b: f64) -> f64 {
     }
     diff
 }
-
+/// returns vector with lenght `1.0`, or `(0.0, 0.0)` if the input is `(0.0, 0.0)`
 fn normalize(v: (f64, f64)) -> (f64, f64) {
-    // noramlize vector
     let magnitude = (v.0 * v.0 + v.1 * v.1).sqrt();
-    return (v.0 / magnitude, v.1 / magnitude);
+    if magnitude == 0. {
+        return (0.,0.);
+    } else {
+        return (v.0 / magnitude, v.1 / magnitude);
+    }
 }
 
 
@@ -118,6 +121,7 @@ struct Shape {
 }
 impl Shape {
     fn render(&self, canvas: &mut Canvas<Window>, camera: &Camera, textures: &HashMap<String, Texture>) {
+        let rendersize = (self.physics.collision_size*4.*camera.zoom) as u32;
         let texture = textures.get(&self.texture).unwrap();
         let shape_screen_pos = camera.to_screen_coords((self.physics.x, self.physics.y));
 
@@ -125,10 +129,10 @@ impl Shape {
             &texture, None,
             Rect::from_center(
                 Point::from(shape_screen_pos), // set center position
-                self.physics.collision_size as u32 * 4, self.physics.collision_size as u32 * 4  // set render width and height
+                rendersize, rendersize,  // set render width and height
             ),
             self.physics.rot, // set rotation
-            Point::from((self.physics.collision_size as i32 * 2, self.physics.collision_size as i32 * 2)), // set center of rotation, in screen coordinates (not texture coordinates)
+            Point::from((rendersize as i32 / 2, rendersize as i32 / 2)), // set center of rotation, in screen coordinates (not texture coordinates)
             false, false).unwrap();
         
         if self.physics.hp < self.physics.max_hp {
@@ -142,12 +146,17 @@ impl Shape {
 
 /// Turrets can now only shoot bullets, will change later
 struct Turret {
+    /// its actually the force of impulse. should be about 100x the weight for normal speed
     projectile_speed: f64,
+    /// weight and hp should be similar. less weight = more bouncy, more weight = more penetration
     projectile_weight: f64,
     projectile_collision_size: f64,
     projectile_hp_regen: f64,
+    /// also the max damage
     projectile_hp: f64,
     /// in micros, first shot is immediatae
+    /// 
+    /// should be >0.033 (30 shots per second), because more shots/second than fps makes glitches
     reload_time: f64,
     /// mean in degrees, gaussian propability distribution
     /// also randomizes projectile speed, at rate 1 degree = 1% speed
@@ -222,6 +231,7 @@ struct Tank {
 }
 impl Tank {
     fn render(&self, canvas: &mut Canvas<Window>, camera: &Camera, textures: &HashMap<String, Texture>) {
+        let rendersize = (self.physics.collision_size*4.*camera.zoom) as u32;
         let texture = textures.get(&self.texture).unwrap();
         let tank_screen_pos = camera.to_screen_coords((self.physics.x, self.physics.y));
 
@@ -229,10 +239,10 @@ impl Tank {
             &texture, None,
             Rect::from_center(
                 Point::from(tank_screen_pos), // set center position
-                self.physics.collision_size as u32 * 4, self.physics.collision_size as u32 * 4  // set render width and height
+                rendersize, rendersize,  // set render width and height
             ),
             self.physics.rot, // set rotation
-            Point::from((self.physics.collision_size as i32 * 2,self.physics.collision_size as i32 * 2)), // set center of rotation, in screen coordinates (not texture coordinates)
+            Point::from((rendersize as i32 / 2, rendersize as i32 / 2)), // set center of rotation, in screen coordinates (not texture coordinates)
             false, false).unwrap();
         
         if self.physics.hp < self.physics.max_hp {
@@ -297,15 +307,15 @@ struct Camera {
 impl Camera {
     /// Converts from screen to map coordinates
     fn to_map_coords(&self, coords: (i32, i32)) -> (f64, f64) {
-        let x = (coords.0 as f64) / self.zoom + self.x - (self.viewport_size.0 / 2) as f64;
-        let y = (coords.1 as f64) / self.zoom + self.y - (self.viewport_size.1 / 2) as f64;
+        let x = (coords.0 as f64) / self.zoom + self.x - (self.viewport_size.0 as f64 / 2. / self.zoom);
+        let y = (coords.1 as f64) / self.zoom + self.y - (self.viewport_size.1 as f64 / 2. / self.zoom);
         (x, y)
     }
 
     /// Converts from map to screen coordinates
     fn to_screen_coords(&self, coords: (f64, f64)) -> (i32, i32) {
-        let x = ((coords.0 - self.x + (self.viewport_size.0 / 2) as f64) * self.zoom) as i32;
-        let y = ((coords.1 - self.y + (self.viewport_size.1 / 2) as f64) * self.zoom) as i32;
+        let x = ((coords.0 - self.x + (self.viewport_size.0 as f64 / 2. / self.zoom) as f64) * self.zoom) as i32;
+        let y = ((coords.1 - self.y + (self.viewport_size.1 as f64 / 2. / self.zoom) as f64) * self.zoom) as i32;
         (x, y)
     }
 
@@ -324,15 +334,16 @@ struct Bullet {
 }
 impl Bullet {
     fn render(&self, canvas: &mut Canvas<Window>, camera: &Camera, textures: &HashMap<String, Texture>) {
+        let rendersize = (self.physics.collision_size*4.*camera.zoom) as u32;
         let texture = textures.get(&self.texture).unwrap();
         canvas.copy_ex(
             &texture, None,
             Rect::from_center(
                 Point::from(camera.to_screen_coords((self.physics.x, self.physics.y))), // set center position
-                self.physics.collision_size as u32*4, self.physics.collision_size as u32*4,  // set render width and height
+                rendersize, rendersize,  // set render width and height
             ),
             self.physics.rot, // set rotation
-            Point::from((self.physics.collision_size as i32 * 2, self.physics.collision_size as i32 * 2)), // set center of rotation, in screen coordinates (not texture coordinates)
+            Point::from((rendersize as i32 / 2, rendersize as i32 / 2)), // set center of rotation, in screen coordinates (not texture coordinates)
             false, false).unwrap();
     }
 }
@@ -439,14 +450,18 @@ impl Input {
 struct TankAI {
     /// IDs of all the tanks this AI controls. Make sure no tank is controlled by multiple AIs.
     tankids: HashSet<u128>,
-    /// how far away the target must be for the tank to attack or retreat. It will ignore tanks outside of range entirely
+    /// how far away the targets (tanks and shapes) must be for the tank to attack or retreat. It will ignore things outside of range entirely, like it does not see them.
     range: f64,
     /// the range at which the tank tries to be from it's target. It will move closer of further accordingly. Set to 0. for smasher tanks to make them try to collide with enemies
     tg_range: f64,
     /// how fast the bullets are, used for aiming. projectile_speed/projectile_weight of the turret
     bullet_speed: f64,
-    /// between 0 and 1, how much health it needs to keep attacking, when it has less it will escape away
-    fight_or_flight_threshold: f64,
+    /// starts fighting when its health gets above this
+    fight_threshold: f64,
+    /// starts escaping away when its health below above this
+    flight_threshold: f64,
+    /// is the tank currently fighting
+    fighting: bool,
     /// set to `true` to make the tank dodge obstacles. Usually its good to turn on, besides tanks like smasher that do a lot of damage by colliding
     dodge_obstacles: bool
 }
@@ -458,8 +473,6 @@ impl TankAI {
     fn control(&mut self, tanks: &mut HashMap<u128, Tank>, shapes: &mut HashMap<u128, Shape>, mut bullets: &mut HashMap<u128, Bullet>, delta: f64) {
         let mut ids_to_remove = vec![];
         for id in &self.tankids {
-            // controlled tank's physics
-
             if tanks.get(&id).is_some() {
                 let con_tankp = tanks.get(&id).unwrap().physics;
                 let mut movedir = (0.,0.);
@@ -482,19 +495,29 @@ impl TankAI {
                     tanks.get_mut(id).unwrap().rotate_to((tg_pos.0 + tg_vel.0, tg_pos.1 + tg_vel.1));
                     tanks.get_mut(id).unwrap().fire(&mut bullets, *id);
 
+                    // switch between fight and flight
+                    if (con_tankp.hp / con_tankp.max_hp) > self.fight_threshold {
+                        self.fighting = true
+                    } else if (con_tankp.hp / con_tankp.max_hp) < self.flight_threshold {
+                        self.fighting = false
+                    }
+
                     // move
-                    if (con_tankp.hp / con_tankp.max_hp) > self.fight_or_flight_threshold && con_tankp.dist(&clo_tankp) > self.tg_range {
+                    if self.fighting && con_tankp.dist(&clo_tankp) > self.tg_range*1.1 {
                         // move towards
                         movedir = (tg_pos.0 + tg_vel.0 - con_tankp.x, tg_pos.1 + tg_vel.1 - con_tankp.y);
-                    } else {
+                    } else if !self.fighting || con_tankp.dist(&clo_tankp) < self.tg_range*0.9 {
                         // move away
                         movedir = (-(tg_pos.0 + tg_vel.0 - con_tankp.x), -(tg_pos.1 + tg_vel.1 - con_tankp.y));
+                    } else {
+                        // randomly move around
+                        movedir = (con_tankp.xvel * 0.1 + thread_rng().gen::<f64>(), con_tankp.yvel * 0.1 + thread_rng().gen::<f64>());
                     }
                 // if it didn't find a tank within range, attack closest shape
                 } else {
                     // search for nearest shape
                     let mut closest_id = 0_u128;
-                    let mut closest_dist = 10_f64.powi(100);
+                    let mut closest_dist = self.range;
                     for (oid, shape) in shapes.iter() {
                         if shape.physics.dist(&tanks.get(id).unwrap().physics) < closest_dist && id != oid {
                             closest_dist = shape.physics.dist(&tanks.get(id).unwrap().physics);
@@ -512,11 +535,11 @@ impl TankAI {
 
                 }
 
-                // dodge obstacles
+                // avoid obstacles
                 if self.dodge_obstacles {
                     for sp in shapes.iter().map(|s| s.1.physics) {
-                        // if the shape is close, and if the shape hp is more than 10% of tank's hp
-                        if con_tankp.dist(&sp) < (sp.collision_size + con_tankp.collision_size)*1.6 && sp.hp > con_tankp.hp*0.1 {
+                        // if the shape is close (distance increases when the tank is going fast), and if the shape hp is more than 5% of tank's hp
+                        if sp.hp > con_tankp.hp*0.05 && con_tankp.dist(&sp) < (sp.collision_size + con_tankp.collision_size + con_tankp.speed())*1.1  {
                             // move directly away from the shape, overriding the move direction determined before
                             let shape_away_dir = normalize((-(sp.x - con_tankp.x), -(sp.y - con_tankp.y)));
                             movedir = normalize(movedir);
@@ -556,25 +579,6 @@ struct Map {
     tankais: Vec<TankAI>
 }
 impl Map {
-    /// Makes an empty map. Does not add the player tank or anything else.
-    fn new() -> Self {
-        Map {
-            map_size: (5_000., 5_000.,),
-            shapes_max: 500,
-            shapes: HashMap::new(),
-            tanks: HashMap::new(),
-            bullets: HashMap::new(),
-            tankais: vec![TankAI {
-                tankids: HashSet::new(),
-                range: 1000.,
-                tg_range: 300.,
-                bullet_speed: 1000.,
-                fight_or_flight_threshold: 0.4,
-                dodge_obstacles: true
-            }]
-        }
-    }
-
     /// renders grid, walls, maybe more in the future
     fn render(&self, canvas: &mut Canvas<Window> , camera: &Camera) {
         for x in ((camera.x - 1./camera.zoom*camera.viewport_size.0 as f64).floor() as i32..(camera.x + 1./camera.zoom*camera.viewport_size.0 as f64).ceil() as i32).filter(|x| x%100 == 0) {
@@ -817,7 +821,23 @@ fn main() {
     textures.insert("triangle".to_owned(), texture_creator.load_texture("textures/triangle.png").unwrap());
 
     // Initialize my own things
-    let mut map = Map::new();
+    let mut map = Map {
+        map_size: (2_000., 2_000.,),
+        shapes_max: 500,
+        shapes: HashMap::new(),
+        tanks: HashMap::new(),
+        bullets: HashMap::new(),
+        tankais: vec![TankAI {
+            tankids: HashSet::new(),
+            range: 1000.,
+            tg_range: 200.,
+            bullet_speed: 1000.,
+            fight_threshold: 0.95,
+            flight_threshold: 0.2,
+            dodge_obstacles: true,
+            fighting: true
+        }]
+    };
     let mut input = Input::init();
     let playerid: u128 = rng.gen();
     let mut camera = Camera {
@@ -841,64 +861,17 @@ fn main() {
                 rot: 0.,
                 rotvel: 0.,
                 collision_size: 35.,
-                hp: 1000.,
-                max_hp: 1000.,
-                hp_regen: 10.,
-            },
-            turrets: vec![Turret {
-                /// its actually the force of impulse. should be about 100x the weight for normal speed
-                projectile_speed: 1_000.,
-                /// weight and hp should be similar. less weight = more bouncy, more weight = more penetration
-                projectile_weight: 1.,
-                projectile_collision_size: 10.,
-                projectile_hp_regen: -0.5,
-                /// also the max damage
-                projectile_hp: 1.,
-                /// should be >0.033 (30 shots per second), because more shots/second than fps makes glitches
-                reload_time: 0.05,
-                inaccuracy: 1.,
-                relative_direction: 0.,
-                time_to_next_shot: 0.
-            }],
-            power: 30000.,
-            rot_power: 50000.,
-            bullet_ids: vec![],
-            texture: "basic".to_owned(),
-        }
-    );
-
-    let ai_id = thread_rng().gen::<u128>();
-    map.tankais[0].tankids.insert(ai_id);
-
-    // add another tank, AI controlled
-    // tanks will be network or AI controlled on the server (also player controlled on LAN multiplayer server), and player or AI controlled in singleplayer
-    map.tanks.insert(
-        ai_id,
-        Tank {
-            physics: Physics {
-                x: 100.,
-                y: 100.,
-                xvel: 0.,
-                yvel: 0.,
-                weight: 100.,
-                rot: 0.,
-                rotvel: 0.,
-                collision_size: 35.,
                 hp: 100.,
                 max_hp: 100.,
-                hp_regen: 10.,
+                hp_regen: 5.,
             },
             turrets: vec![Turret {
-                /// its actually the force of impulse. should be about 100x the weight for normal speed
                 projectile_speed: 1_000.,
-                /// weight and hp should be similar. less weight = more bouncy, more weight = more penetration
                 projectile_weight: 1.,
                 projectile_collision_size: 10.,
                 projectile_hp_regen: -0.5,
-                /// also the max damage
                 projectile_hp: 1.,
-                /// should be >0.033 (30 shots per second), because more shots/second than fps makes glitches
-                reload_time: 0.09,
+                reload_time: 0.1,
                 inaccuracy: 1.,
                 relative_direction: 0.,
                 time_to_next_shot: 0.
@@ -909,6 +882,47 @@ fn main() {
             texture: "basic".to_owned(),
         }
     );
+
+    for abc in 0..10 {
+        let ai_id = thread_rng().gen::<u128>();
+        map.tankais[0].tankids.insert(ai_id);
+
+        // add another tank, AI controlled
+        // tanks will be network or AI controlled on the server (also player controlled on LAN multiplayer server), and player or AI controlled in singleplayer
+        map.tanks.insert(
+            ai_id,
+            Tank {
+                physics: Physics {
+                    x: 1000. + 100. * abc as f64,
+                    y: 1000.,
+                    xvel: 0.,
+                    yvel: 0.,
+                    weight: 100.,
+                    rot: 0.,
+                    rotvel: 0.,
+                    collision_size: 35.,
+                    hp: 100.,
+                    max_hp: 100.,
+                    hp_regen: 2.,
+                },
+                turrets: vec![Turret {
+                    projectile_speed: 2_000.,
+                    projectile_weight: 2.,
+                    projectile_collision_size: 10.,
+                    projectile_hp_regen: -0.5,
+                    projectile_hp: 2.,
+                    reload_time: 0.2,
+                    inaccuracy: 1.,
+                    relative_direction: 0.,
+                    time_to_next_shot: 0.
+                }],
+                power: 30000.,
+                rot_power: 50000.,
+                bullet_ids: vec![],
+                texture: "basic".to_owned(),
+            }
+        );
+    }
 
     let mut last_frame_start;
     // How long the last frame took, in micros, 1 millisecond for the first frame
@@ -1018,7 +1032,8 @@ fn main() {
 
         // track tg tank if it exists, otherwise don't move
         if map.tanks.get(&camera.target_tank).is_some() {
-            camera.track(delta, &map.tanks.get(&camera.target_tank).unwrap().physics);
+            // camera.track(delta, &map.tanks.get(&camera.target_tank).unwrap().physics);
+            camera.zoom = 0.25;
         }
 
 
