@@ -2,6 +2,7 @@
 
 extern crate sdl2;
 use rand::prelude::*;
+use rand_distr::num_traits::Pow;
 use rand_distr::{Distribution, Normal};
 use sdl2::event::Event;
 use sdl2::image::LoadTexture;
@@ -75,7 +76,7 @@ impl Physics {
 
         self.xvel *= (-delta*0.5).exp();
         self.yvel *= (-delta*0.5).exp();
-        self.rotvel *= (-delta*10.).exp();
+        self.rotvel *= (-delta*1.).exp();
 
         self.hp = (self.hp + self.hp_regen*(delta)).min(self.max_hp);
     }
@@ -248,7 +249,6 @@ impl Tank {
         let magnitude = (dir.0 * dir.0 + dir.1 * dir.1).sqrt();
         let normalized_dir = (dir.0 / magnitude, dir.1 / magnitude);
         if (dir == (0., 0.)) || angle_diff(f64::atan2(dir.0, dir.1).to_degrees(), f64::atan2(self.physics.xvel, self.physics.yvel).to_degrees()).abs() > 90.0_f64 {
-            println!("brake");
             self.physics.xvel *= (-delta*4.).exp();
             self.physics.yvel *= (-delta*4.).exp();
             if dir == (0., 0.) {
@@ -439,10 +439,16 @@ impl Input {
 struct TankAI {
     /// IDs of all the tanks this AI controls. Make sure no tank is controlled by multiple AIs.
     tankids: HashSet<u128>,
-    /// how far away the target can be for the tank to attack
+    /// how far away the target must be for the tank to attack or retreat. It will ignore tanks outside of range entirely
     range: f64,
+    /// the range at which the tank tries to be from it's target. It will move closer of further accordingly. Set to 0. for smasher tanks to make them try to collide with enemies
+    tg_range: f64,
     /// how fast the bullets are, used for aiming. projectile_speed/projectile_weight of the turret
     bullet_speed: f64,
+    /// between 0 and 1, how much health it needs to keep attacking, when it has less it will escape away
+    fight_or_flight_threshold: f64,
+    /// set to `true` to make the tank dodge obstacles. Usually its good to turn on, besides tanks like smasher that do a lot of damage by colliding
+    dodge_obstacles: bool
 }
 impl TankAI {
     /// Controls all the tanks in it's `tankids` - makes them move and shoot based on `Map`
@@ -452,7 +458,12 @@ impl TankAI {
     fn control(&mut self, tanks: &mut HashMap<u128, Tank>, shapes: &mut HashMap<u128, Shape>, mut bullets: &mut HashMap<u128, Bullet>, delta: f64) {
         let mut ids_to_remove = vec![];
         for id in &self.tankids {
+            // controlled tank's physics
+
             if tanks.get(&id).is_some() {
+                let con_tankp = tanks.get(&id).unwrap().physics;
+                let mut movedir = (0.,0.);
+
                 // search for nearest tank
                 let mut closest_id = 0_u128;
                 let mut closest_dist = self.range;
@@ -462,14 +473,61 @@ impl TankAI {
                         closest_id = *oid;
                     }
                 }
+                // if it found nearest tank within range attack of retreat
                 if closest_dist < self.range {
-                    let tg_pos = (tanks.get(&closest_id).unwrap().physics.x, tanks.get(&closest_id).unwrap().physics.y);
-                    let tg_vel = (tanks.get(&closest_id).unwrap().physics.xvel * ((closest_dist/(0.6 * self.bullet_speed)).exp()) / 3.0, tanks.get(&closest_id).unwrap().physics.yvel * ((closest_dist/(0.6 * self.bullet_speed)).exp()) / 3.0);
+                    // closest tank's physics
+                    let clo_tankp = tanks.get(&closest_id).unwrap().physics;
+                    let tg_pos = (clo_tankp.x, clo_tankp.y);
+                    let tg_vel = ((clo_tankp.xvel - con_tankp.xvel) * ((closest_dist/(0.6 * self.bullet_speed)).exp()) / 3.0, (clo_tankp.yvel - con_tankp.yvel) * ((closest_dist/(0.6 * self.bullet_speed)).exp()) / 3.0);
                     tanks.get_mut(id).unwrap().rotate_to((tg_pos.0 + tg_vel.0, tg_pos.1 + tg_vel.1));
                     tanks.get_mut(id).unwrap().fire(&mut bullets, *id);
+
+                    // move
+                    if (con_tankp.hp / con_tankp.max_hp) > self.fight_or_flight_threshold && con_tankp.dist(&clo_tankp) > self.tg_range {
+                        // move towards
+                        movedir = (tg_pos.0 + tg_vel.0 - con_tankp.x, tg_pos.1 + tg_vel.1 - con_tankp.y);
+                    } else {
+                        // move away
+                        movedir = (-(tg_pos.0 + tg_vel.0 - con_tankp.x), -(tg_pos.1 + tg_vel.1 - con_tankp.y));
+                    }
+                // if it didn't find a tank within range, attack closest shape
+                } else {
+                    // search for nearest shape
+                    let mut closest_id = 0_u128;
+                    let mut closest_dist = 10_f64.powi(100);
+                    for (oid, shape) in shapes.iter() {
+                        if shape.physics.dist(&tanks.get(id).unwrap().physics) < closest_dist && id != oid {
+                            closest_dist = shape.physics.dist(&tanks.get(id).unwrap().physics);
+                            closest_id = *oid;
+                        }
+                    }
+                    // if it found a shape, attack and chase it
+                    if closest_id != 0 {
+                        let clo_shapep = shapes.get(&closest_id).unwrap().physics;
+                        let tg_pos = (clo_shapep.x, clo_shapep.y);
+                        tanks.get_mut(id).unwrap().rotate_to((tg_pos.0, tg_pos.1));
+                        tanks.get_mut(id).unwrap().fire(&mut bullets, *id);
+                        movedir = (tg_pos.0 - con_tankp.x, tg_pos.1 - con_tankp.y);
+                    }
+
                 }
 
-                tanks.get_mut(id).unwrap().move_in_dir((0.,0.), delta);
+                // dodge obstacles
+                if self.dodge_obstacles {
+                    for sp in shapes.iter().map(|s| s.1.physics) {
+                        // if the shape is close, and if the shape hp is more than 10% of tank's hp
+                        if con_tankp.dist(&sp) < (sp.collision_size + con_tankp.collision_size)*1.6 && sp.hp > con_tankp.hp*0.1 {
+                            // move directly away from the shape, overriding the move direction determined before
+                            let shape_away_dir = normalize((-(sp.x - con_tankp.x), -(sp.y - con_tankp.y)));
+                            movedir = normalize(movedir);
+                            movedir = (movedir.0 + shape_away_dir.0, movedir.1 + shape_away_dir.1);
+
+                        }
+                    }
+                }
+
+                tanks.get_mut(id).unwrap().move_in_dir(movedir, delta);
+
             } else {
                 // Tank with id 'id' is not in 'tanks', it appearently died. Remove from list of controlled tanks
                 ids_to_remove.push(*id);
@@ -508,8 +566,11 @@ impl Map {
             bullets: HashMap::new(),
             tankais: vec![TankAI {
                 tankids: HashSet::new(),
-                range: 2000.,
-                bullet_speed: 2000.
+                range: 1000.,
+                tg_range: 300.,
+                bullet_speed: 1000.,
+                fight_or_flight_threshold: 0.4,
+                dodge_obstacles: true
             }]
         }
     }
@@ -780,8 +841,8 @@ fn main() {
                 rot: 0.,
                 rotvel: 0.,
                 collision_size: 35.,
-                hp: 100.,
-                max_hp: 100.,
+                hp: 1000.,
+                max_hp: 1000.,
                 hp_regen: 10.,
             },
             turrets: vec![Turret {
@@ -829,7 +890,7 @@ fn main() {
             },
             turrets: vec![Turret {
                 /// its actually the force of impulse. should be about 100x the weight for normal speed
-                projectile_speed: 2_000.,
+                projectile_speed: 1_000.,
                 /// weight and hp should be similar. less weight = more bouncy, more weight = more penetration
                 projectile_weight: 1.,
                 projectile_collision_size: 10.,
