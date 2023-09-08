@@ -149,8 +149,8 @@ impl Shape {
 
 /// Turrets can now only shoot bullets, will change later
 struct Turret {
-    /// its actually the force of impulse. should be about 100x the weight for normal speed
-    projectile_speed: f64,
+    /// should be about 1000x the weight for normal speed
+    projectile_impulse: f64,
     /// weight and hp should be similar. less weight = more bouncy, more weight = more penetration
     projectile_weight: f64,
     projectile_collision_size: f64,
@@ -185,10 +185,10 @@ impl Turret {
                 let normal = rand_distr::Normal::new(0., self.inaccuracy).expect("Invalid parameters for normal distribution");
 
                 // Generate random numbers from the Gaussian distribution
-                random_speed = self.projectile_speed*(1. + 0.01*normal.sample(&mut thread_rng()));
+                random_speed = self.projectile_impulse*(1. + 0.01*normal.sample(&mut thread_rng()));
                 random_direction = normal.sample(&mut thread_rng());
             } else {
-                random_speed = self.projectile_speed;
+                random_speed = self.projectile_impulse;
                 random_direction = 0.;
             }
 
@@ -458,7 +458,7 @@ struct TankAI {
     range: f64,
     /// the range at which the tank tries to be from it's target. It will move closer of further accordingly. Set to 0. for smasher tanks to make them try to collide with enemies
     tg_range: f64,
-    /// how fast the bullets are, used for aiming. projectile_speed/projectile_weight of the turret
+    /// how fast the bullets are, used for aiming. projectile_impulse/projectile_weight of the turret
     bullet_speed: f64,
     /// starts fighting when its health gets above this
     fight_threshold: f64,
@@ -532,7 +532,10 @@ impl TankAI {
                         let tg_pos = (clo_shapep.x, clo_shapep.y);
                         tanks.get_mut(&id).unwrap().rotate_to((tg_pos.0, tg_pos.1));
                         tanks.get_mut(&id).unwrap().fire(&mut bullets, id);
-                        movedir = (tg_pos.0 - con_tankp.x, tg_pos.1 - con_tankp.y);
+                        
+                        // movedir is set to a very low value, so it is easily overriden by the obstacle avoiding algorithm, to prevent tanks from colliding with low hp shapes when farming shapes
+                        movedir = normalize((tg_pos.0 - con_tankp.x, tg_pos.1 - con_tankp.y));
+                        movedir = (movedir.0 * 0.01, movedir.1 * 0.01)
                     }
                 }
             }
@@ -581,11 +584,10 @@ impl TankAI {
                 // attack target tank
                 tanks.get_mut(&id).unwrap().rotate_to((tg_pos.0 + tg_vel.0, tg_pos.1 + tg_vel.1));
                 tanks.get_mut(&id).unwrap().fire(&mut bullets, id);
-
+                
             }
 
             // avoid obstacles
-            movedir = normalize(movedir);
             if self.dodge_obstacles {
                 for sp in shapes.iter().map(|s| s.1.physics) {
                     // if the shape is close (distance increases when the tank is going fast)
@@ -923,7 +925,7 @@ fn main() {
                 object_id: playerid,
             },
             turrets: vec![Turret {
-                projectile_speed: 2_000.,
+                projectile_impulse: 2_000.,
                 projectile_weight: 2.,
                 projectile_collision_size: 10.,
                 projectile_hp_regen: -0.5,
@@ -1027,7 +1029,7 @@ fn main() {
                         object_id: ai_tank_id,
                     },
                     turrets: vec![Turret {
-                        projectile_speed: 2_000.,
+                        projectile_impulse: 2_000.,
                         projectile_weight: 2.,
                         projectile_collision_size: 10.,
                         projectile_hp_regen: -0.5,
