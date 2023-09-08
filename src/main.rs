@@ -55,7 +55,7 @@ lazy_static! {
                     time_to_next_shot: 0.
                 }],
                 power: 30000.,
-                rot_power: 50000.,
+                rot_power: 450.,
                 bullet_ids: vec![],
                 texture: "basic".to_owned(),
                 last_hit_id: 0,
@@ -84,23 +84,23 @@ lazy_static! {
                     hp_regen: 2.,
                 },
                 turrets: vec![Turret {
-                    projectile_impulse: 12_000.,
-                    projectile_weight: 9.,
-                    projectile_collision_size: 12.,
-                    projectile_hp_regen: -3.,
-                    projectile_hp: 8.,
-                    reload_time: 0.5,
+                    projectile_impulse: 18_000.,
+                    projectile_weight: 12.,
+                    projectile_collision_size: 15.,
+                    projectile_hp_regen: -7.,
+                    projectile_hp: 15.,
+                    reload_time: 0.8,
                     inaccuracy: 0.,
                     relative_direction: 0.,
                     time_to_next_shot: 0.
                 }],
-                power: 25000.,
-                rot_power: 60000.,
+                power: 20000.,
+                rot_power: 100.,
                 bullet_ids: vec![],
                 texture: "long".to_owned(),
                 last_hit_id: 0,
                 evolution: Evolution::new(),
-                camera_zoom: 0.7
+                camera_zoom: 0.6
             }, vec![
                 "very long".to_string()],
             0.
@@ -112,7 +112,7 @@ lazy_static! {
     };
 }
 
-/// From A to B
+/// From A to B, in radians
 fn angle_diff(a: f64, b: f64) -> f64 {
     let mut diff = b - a;
     if diff > 180.0 {
@@ -122,6 +122,15 @@ fn angle_diff(a: f64, b: f64) -> f64 {
     }
     diff
 }
+
+fn vector_diff(v1: (f64, f64), v2: (f64, f64)) -> (f64, f64) {
+    (v2.0 - v1.0, v2.1 - v1.1)
+}
+
+fn vector_lenght(v: (f64, f64)) -> f64 {
+    f64::sqrt(v.0.powi(2) + v.0.powi(2))
+}
+
 /// returns vector with lenght `1.0`, or `(0.0, 0.0)` if the input is `(0.0, 0.0)`
 fn normalize(v: (f64, f64)) -> (f64, f64) {
     let magnitude = (v.0 * v.0 + v.1 * v.1).sqrt();
@@ -193,14 +202,14 @@ impl Physics {
     /// Only moves self, need to be called in reverse to move `b`
     fn collide(&mut self, b: &Physics, delta: f64) {
         if (self.collision_size + b.collision_size) > self.dist(&b) {
-            // how much the collision circles are overlaping * b.weight * delta
-            let s = delta*131_072.;
+            let speed_diff = vector_lenght(vector_diff((b.xvel, b.yvel), (self.xvel, self.yvel)));
+            let s = delta*256.*(speed_diff+64.);
             self.xvel *= (-delta*4.).exp();
             self.yvel *= (-delta*4.).exp();
             let n = normalize((self.x - b.x, self.y - b.y));
             self.push((n.0*s, n.1*s));
             self.hp -= (s/1024.).min(b.hp);
-            self.push_rot(delta*b.speed()*angle_diff(f64::atan2(b.x - self.x, b.y - self.y).to_degrees(), f64::atan2((b.x + b.xvel) - (self.x + self.xvel), (b.y + b.yvel) - (self.y + self.yvel)).to_degrees())/-1.);
+            self.push_rot(delta*speed_diff*angle_diff(f64::atan2(b.x - self.x, b.y - self.y).to_degrees(), f64::atan2((b.x + b.xvel) - (self.x + self.xvel), (b.y + b.yvel) - (self.y + self.yvel)).to_degrees())/-1.);
         }
     }
 
@@ -317,17 +326,33 @@ impl Turret {
     }
 }
 
-/// Stores `xp`, upgraded levels, and tank class. Has functions for upgrading levels and promoting to higher classes. 
+/// Stores `xp`, upgraded levels, and tank class. Has functions for upgrading levels and promoting to higher classes.
+/// 
+/// Available upgrades (might change in the future): 1:max hp, 2:hp regeneration, 3:reload time, 4:projectile hp(projectile hp regen decreases accordingly), 5: movement speed(also affects rotation speed), 6: projectile speed(impulse)
+/// 
+/// Promoting to a higher class will delete all upgrades, will likely change in the future
 #[derive(Clone)]
 struct Evolution {
     xp: f64,
     class: String,
+    hp_level: u8,
+    regen_level: u8,
+    reload_level: u8,
+    damage_level: u8,
+    speed_level: u8,
+    bulletspeed_level: u8,
 }
 impl Evolution {
     fn new() -> Self {
         Evolution {
             xp: 1000000.,
             class: "basic".to_string(),
+            hp_level: 0,
+            regen_level: 0,
+            reload_level: 0,
+            damage_level: 0,
+            speed_level: 0,
+            bulletspeed_level: 0,
         }
     }
 
@@ -350,6 +375,67 @@ impl Evolution {
         ph.rot = old_tank.physics.rot;
         ph.rotvel = old_tank.physics.rotvel;
         ph.hp = old_tank.physics.hp;
+
+        ev.hp_level = old_tank.evolution.hp_level;
+        ev.regen_level = old_tank.evolution.regen_level;
+        ev.damage_level = old_tank.evolution.damage_level;
+        ev.reload_level = old_tank.evolution.reload_level;
+        ev.speed_level = old_tank.evolution.speed_level;
+        ev.bulletspeed_level = old_tank.evolution.bulletspeed_level;
+    }
+
+    /// Makes the physical properties (hp, power, hp_regen etc.) of the tank match it's class and levels. Always call after changing a level or a class.
+    fn level_refresh(tank: &mut Tank) {
+        // the default tank for this class
+        let default_tank = EVOLUTION_TREE.get(&tank.evolution.class).unwrap().0.clone();
+
+        // set all the upgradable values to default for the class
+        tank.physics.max_hp = default_tank.physics.max_hp;
+        tank.physics.hp_regen = default_tank.physics.hp_regen;
+        tank.power = default_tank.power;
+        tank.rot_power = default_tank.rot_power;
+        for x in 0..tank.turrets.len() {
+            tank.turrets[x].projectile_hp = default_tank.turrets[x].projectile_hp;
+            tank.turrets[x].projectile_hp_regen = default_tank.turrets[x].projectile_hp_regen;
+            tank.turrets[x].projectile_impulse = default_tank.turrets[x].projectile_impulse;
+            tank.turrets[x].projectile_weight = default_tank.turrets[x].projectile_weight;
+            tank.turrets[x].reload_time = default_tank.turrets[x].reload_time;
+        }
+
+        for l in 0..tank.evolution.hp_level.min(10) {
+            tank.physics.max_hp *= 1. + 0.15 * (1.1-0.1*l as f64);
+        }
+    
+        for l in 0..tank.evolution.regen_level.min(10) {
+            tank.physics.hp_regen *= 1. + 0.13 * (1.1-0.1*l as f64);
+        }
+    
+        for l in 0..tank.evolution.reload_level.min(10) {
+            for x in 0..tank.turrets.len() {
+                tank.turrets[x].reload_time *= 1. - 0.10 * (1.1-0.1*l as f64);
+            }
+        }
+    
+        // this increases projectile_impulse, projectile_weight, projectile_hp and projectile_hp_regen all by the same coefficient
+        for l in 0..tank.evolution.damage_level.min(10) {
+            for x in 0..tank.turrets.len() {
+                tank.turrets[x].projectile_hp *= 1. + 0.08 * (1.1-0.1*l as f64);
+                tank.turrets[x].projectile_hp_regen *= 1. + 0.08 * (1.1-0.1*l as f64);
+                tank.turrets[x].projectile_impulse *= 1. + 0.08 * (1.1-0.1*l as f64);
+                tank.turrets[x].projectile_weight *= 1. + 0.08 * (1.1-0.1*l as f64);
+            }
+        }
+    
+        for l in 0..tank.evolution.speed_level.min(10) {
+            tank.power *= 1. + 0.08 * (1.1-0.1*l as f64);
+            tank.rot_power *= 1. + 0.08 * (1.1-0.1*l as f64);
+        }
+    
+        for l in 0..tank.evolution.bulletspeed_level.min(10) {
+            for x in 0..tank.turrets.len() {
+                tank.turrets[x].projectile_impulse *= 1. + 0.07 * (1.1-0.1*l as f64);
+            }
+        }
     }
 }
 
@@ -416,9 +502,10 @@ impl Tank {
     }
 
     /// Applies rotation force to the tank, rotating it towards a point over time. `to` is on map coordinates
-    fn rotate_to(&mut self, to: (f64, f64)) {
+    fn rotate_to(&mut self, to: (f64, f64), delta: f64) {
         let tg_angle = -f64::atan2(self.physics.x - to.0, self.physics.y - to.1).to_degrees();
-        self.physics.push_rot(angle_diff(self.physics.rot + self.physics.rotvel/4., tg_angle)/180.*self.rot_power);
+        self.physics.push_rot(angle_diff(self.physics.rot, tg_angle).clamp(-25., 25.)*self.rot_power*delta*40.);
+        self.physics.rotvel *= (-delta*10.).exp();
     }
 
     /// Fires from all the tank's reloaded turrets
@@ -702,7 +789,7 @@ impl TankAI {
                     if closest_id != 0 {
                         let clo_shapep = shapes.get(&closest_id).unwrap().physics;
                         let tg_pos = (clo_shapep.x, clo_shapep.y);
-                        tanks.get_mut(&id).unwrap().rotate_to((tg_pos.0, tg_pos.1));
+                        tanks.get_mut(&id).unwrap().rotate_to((tg_pos.0, tg_pos.1), delta);
                         tanks.get_mut(&id).unwrap().fire(&mut bullets, id);
                         
                         // movedir is set to a very low value, so it is easily overriden by the obstacle avoiding algorithm, to prevent tanks from colliding with low hp shapes when farming shapes
@@ -729,7 +816,7 @@ impl TankAI {
 
                 let tg_pos = (tgp.x, tgp.y);
                 // not the actual target velocity, but a vector of how much in front of the tank to fire to hit it properly, which depends on tg velocity, distance and bullet speed
-                let tg_vel = ((tgp.xvel - con_tankp.xvel) * ((tg_dist/(0.6 * self.bullet_speed)).exp()) / 3.0, (tgp.yvel - con_tankp.yvel) * ((tg_dist/(0.6 * self.bullet_speed)).exp()) / 3.0);
+                let tg_vel = ((tgp.xvel - con_tankp.xvel) * ((tg_dist/(0.6 * self.bullet_speed)).exp()) / 5.0, (tgp.yvel - con_tankp.yvel) * ((tg_dist/(0.6 * self.bullet_speed)).exp()) / 5.0);
 
                 // move
                 if self.fighting && con_tankp.dist(&tgp) > self.tg_range*1.2 {
@@ -754,7 +841,7 @@ impl TankAI {
                 }
 
                 // attack target tank
-                tanks.get_mut(&id).unwrap().rotate_to((tg_pos.0 + tg_vel.0, tg_pos.1 + tg_vel.1));
+                tanks.get_mut(&id).unwrap().rotate_to((tg_pos.0 + tg_vel.0, tg_pos.1 + tg_vel.1), delta);
                 tanks.get_mut(&id).unwrap().fire(&mut bullets, id);
                 
             }
@@ -1239,7 +1326,7 @@ fn main() {
             }
 
             //rotation
-            player.rotate_to(camera.to_map_coords(input.mouse_pos));
+            player.rotate_to(camera.to_map_coords(input.mouse_pos), delta);
 
             //firing
             if input.fire.is_down {
@@ -1274,25 +1361,55 @@ fn main() {
             } else {
                 if input.u1.just && input.u1.is_down {
                     if player.evolution.xp > 100. {
-                        player.physics.max_hp += 10.;
+                        player.evolution.hp_level += 1;
                         player.evolution.xp -= 100.;
-                        println!("upgraded max_hp to {:.0}", player.physics.max_hp);
+                        Evolution::level_refresh(player);
+                        println!("upgraded HP to level {}", player.evolution.hp_level);
                     }
                     println!("xp: {:.0}", player.evolution.xp);
                 }
                 if input.u2.just && input.u2.is_down {
                     if player.evolution.xp > 100. {
-                        player.physics.hp_regen += 0.2;
+                        player.evolution.regen_level += 1;
                         player.evolution.xp -= 100.;
-                        println!("upgraded hp_regen to {:.2}", player.physics.hp_regen);
+                        Evolution::level_refresh(player);
+                        println!("upgraded REGEN to level {}", player.evolution.regen_level);
                     }
                     println!("xp: {:.0}", player.evolution.xp);
                 }
                 if input.u3.just && input.u3.is_down {
                     if player.evolution.xp > 100. {
-                        player.turrets[0].reload_time *= 0.9;
+                        player.evolution.reload_level += 1;
                         player.evolution.xp -= 100.;
-                        println!("upgraded to reload_time {:.4}", player.turrets[0].reload_time);
+                        Evolution::level_refresh(player);
+                        println!("upgraded RELOAD to level {}", player.evolution.reload_level);
+                    }
+                    println!("xp: {:.0}", player.evolution.xp);
+                }
+                if input.u4.just && input.u4.is_down {
+                    if player.evolution.xp > 100. {
+                        player.evolution.damage_level += 1;
+                        player.evolution.xp -= 100.;
+                        Evolution::level_refresh(player);
+                        println!("upgraded DAMAGE to level {}", player.evolution.damage_level);
+                    }
+                    println!("xp: {:.0}", player.evolution.xp);
+                }
+                if input.u5.just && input.u5.is_down {
+                    if player.evolution.xp > 100. {
+                        player.evolution.speed_level += 1;
+                        player.evolution.xp -= 100.;
+                        Evolution::level_refresh(player);
+                        println!("upgraded SPEED to level {}", player.evolution.speed_level);
+                    }
+                    println!("xp: {:.0}", player.evolution.xp);
+                }
+                if input.u6.just && input.u6.is_down {
+                    if player.evolution.xp > 100. {
+                        player.evolution.bulletspeed_level += 1;
+                        player.evolution.xp -= 100.;
+                        Evolution::level_refresh(player);
+                        println!("upgraded BULLET_SPEED to level {}", player.evolution.bulletspeed_level);
                     }
                     println!("xp: {:.0}", player.evolution.xp);
                 }
