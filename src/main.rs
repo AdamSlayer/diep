@@ -1,9 +1,5 @@
-#[allow(unused)]
-
-extern crate sdl2;
 use rand::prelude::*;
-
-use rand_distr::{Distribution};
+use rand_distr::Distribution;
 use sdl2::event::Event;
 use sdl2::image::LoadTexture;
 use sdl2::keyboard::Keycode;
@@ -13,7 +9,108 @@ use sdl2::rect::{Point, Rect};
 use sdl2::render::{Canvas, Texture};
 use sdl2::video::Window;
 use std::collections::{HashMap, HashSet};
-use std::time::{Instant};
+use std::time::Instant;
+
+extern crate lazy_static;
+
+use lazy_static::lazy_static;
+
+/// init
+lazy_static! {
+    /// Vec<> of all the tank classes.
+    /// 
+    /// Contains data in the following format: (`DefaultTank`, `EvolveTo`, `Cost`)
+    /// 
+    /// `DefaultTank` is the default values of the tank of this class, all at level 1.
+    /// `EvolveTo` is a vec of names of all the classes a tank can evolve to from this class.
+    /// `Cost` is how much it costs to evolve to (not from) the particular class.
+    /// 
+    pub static ref EVOLUTION_TREE: HashMap<String, (Tank, Vec<String>, f64)> = {
+        let mut hash_set = HashMap::new();
+
+        hash_set.insert("basic".to_string(), (
+            Tank {
+                physics: Physics {
+                    x: 0.,
+                    y: 0.,
+                    xvel: 0.,
+                    yvel: 0.,
+                    weight: 100.,
+                    rot: 0.,
+                    rotvel: 0.,
+                    collision_size: 35.,
+                    hp: 100.,
+                    max_hp: 100.,
+                    hp_regen: 2.,
+                },
+                turrets: vec![Turret {
+                    projectile_impulse: 2_000.,
+                    projectile_weight: 2.,
+                    projectile_collision_size: 10.,
+                    projectile_hp_regen: -0.5,
+                    projectile_hp: 2.,
+                    reload_time: 0.2,
+                    inaccuracy: 1.,
+                    relative_direction: 0.,
+                    time_to_next_shot: 0.
+                }],
+                power: 30000.,
+                rot_power: 50000.,
+                bullet_ids: vec![],
+                texture: "basic".to_owned(),
+                last_hit_id: 0,
+                evolution: Evolution::new(),
+                camera_zoom: 1.0
+            }, vec![
+                "double".to_string(),
+                "long".to_string(),
+                "wide".to_string()],
+            0.
+        ));
+
+        hash_set.insert("long".to_string(), (
+            Tank {
+                physics: Physics {
+                    x: 0.,
+                    y: 0.,
+                    xvel: 0.,
+                    yvel: 0.,
+                    weight: 100.,
+                    rot: 0.,
+                    rotvel: 0.,
+                    collision_size: 35.,
+                    hp: 100.,
+                    max_hp: 100.,
+                    hp_regen: 2.,
+                },
+                turrets: vec![Turret {
+                    projectile_impulse: 12_000.,
+                    projectile_weight: 9.,
+                    projectile_collision_size: 12.,
+                    projectile_hp_regen: -3.,
+                    projectile_hp: 8.,
+                    reload_time: 0.5,
+                    inaccuracy: 0.,
+                    relative_direction: 0.,
+                    time_to_next_shot: 0.
+                }],
+                power: 25000.,
+                rot_power: 60000.,
+                bullet_ids: vec![],
+                texture: "basic".to_owned(),
+                last_hit_id: 0,
+                evolution: Evolution::new(),
+                camera_zoom: 1.0
+            }, vec![
+                "very long".to_string()],
+            0.
+        ));
+
+        // Add more entries here using hash_set.insert() as needed
+
+        hash_set
+    };
+}
 
 /// From A to B
 fn angle_diff(a: f64, b: f64) -> f64 {
@@ -56,9 +153,7 @@ struct Physics {
     hp: f64,
     max_hp: f64,
     /// per second
-    hp_regen: f64,
-    /// id of the object this physics it a physics of
-    object_id: u128
+    hp_regen: f64
 }
 impl Physics {
     /// Applies a one time push in a specified direction, suddenly changing velocity. Has lower impact on heavier objects.
@@ -148,6 +243,7 @@ impl Shape {
 }
 
 /// Turrets can now only shoot bullets, will change later
+#[derive(Clone)]
 struct Turret {
     /// should be about 1000x the weight for normal speed
     projectile_impulse: f64,
@@ -221,8 +317,35 @@ impl Turret {
     }
 }
 
+/// Stores `xp`, upgraded levels, and tank class. Has functions for upgrading levels and promoting to higher classes. 
+#[derive(Clone)]
+struct Evolution {
+    xp: f64,
+    class: String,
+}
+impl Evolution {
+    fn new() -> Self {
+        Evolution {
+            xp: 1000000.,
+            class: "basic".to_string(),
+        }
+    }
+
+    /// Promotes a tank to a class. Does not check whether the tank can promote to this class.
+    /// 
+    /// Does not take `&self`, because the evolution information is contained in the `&mut Tank` it takes
+    fn promote(tank: &mut Tank, class: String) {
+        let ev = &mut tank.evolution;
+        let ph = &mut tank.physics;
+
+        ev.class = class.clone();
+        *tank = EVOLUTION_TREE.get(&class).unwrap().0.clone();
+    }
+}
+
 /// A tank. Player, bot, boss etc
-struct Tank {
+#[derive(Clone)]
+pub struct Tank {
     physics: Physics,
     /// How much power the tank can apply to it's movement. Will move faster with more power, but slower if it weights more.
     power: f64,
@@ -231,8 +354,11 @@ struct Tank {
     turrets: Vec<Turret>,
     bullet_ids: Vec<u128>,
     texture: String,
-    // id of the source of the last bullet that hit this tank. Useful for assiging the kill to a tank, even if the final damage was for example a collision with a shape.
+    /// id of the source of the last bullet that hit this tank. Useful for assiging the kill to a tank, even if the final damage was for example a collision with a shape.
     last_hit_id: u128,
+    /// contains all the upgrading and evolution related variables and functions
+    evolution: Evolution,
+    camera_zoom: f64
 }
 impl Tank {
     fn render(&self, canvas: &mut Canvas<Window>, camera: &Camera, textures: &HashMap<String, Texture>) {
@@ -354,7 +480,8 @@ impl Bullet {
     }
 }
 
-/// Tracks info about a button, like if it is pressed, and what keycodes and/or mouse button activates it
+/// Tracks info about a button, like if it is pressed, and what keycode or mouse button activates it
+#[derive(Clone, Copy)]
 struct Button {
     /// If it is activated by a key, otherwise is None
     keycode: Option<Keycode>,
@@ -368,12 +495,33 @@ struct Button {
 /// Allows easy keybind settings.
 /// 
 /// For mouse, it tracks this frame position delta and current position.
+/// 
+/// By pressing E (stands for Evolve, Evolution) you display evolution information. You can still fire using the mouse, and move with wsad.
+/// Pressing E again will hide the information. The info is only visual, and it has info like: [HP: lvl 3, 130 hp, press '1' to upgrade]. You can still evolve without the menu if you know the keys.
+/// 
+/// Upgrading levels can be done by pressing the number keys (on the number row, not numpad). Promoting classes is done by Left Shift + number key. 
+/// 
+/// More info in `Evolution` struct
 struct Input {
     up: Button,
     down: Button,
     left: Button,
     right: Button,
     fire: Button,
+
+    // u stands for upgrade. these are keys used for upgrading (or promoting when used with shift)
+    u1: Button,
+    u2: Button,
+    u3: Button,
+    u4: Button,
+    u5: Button,
+    u6: Button,
+    u7: Button,
+    u8: Button,
+    u9: Button,
+    u0: Button,
+
+    shift: Button,
 
     mouse_pos: (i32,i32),
     mouse_delta: (i32,i32)
@@ -387,6 +535,20 @@ impl Input {
             left: Button { keycode: Some(Keycode::A), mousebutton: None, is_down: false, just: false },
             right: Button { keycode: Some(Keycode::D), mousebutton: None, is_down: false, just: false },
             fire: Button { keycode: None, mousebutton: Some(MouseButton::Left), is_down: false, just: false },
+
+            u1: Button { keycode: Some(Keycode::Num1), mousebutton: None, is_down: false, just: false },
+            u2: Button { keycode: Some(Keycode::Num2), mousebutton: None, is_down: false, just: false },
+            u3: Button { keycode: Some(Keycode::Num3), mousebutton: None, is_down: false, just: false },
+            u4: Button { keycode: Some(Keycode::Num4), mousebutton: None, is_down: false, just: false },
+            u5: Button { keycode: Some(Keycode::Num5), mousebutton: None, is_down: false, just: false },
+            u6: Button { keycode: Some(Keycode::Num6), mousebutton: None, is_down: false, just: false },
+            u7: Button { keycode: Some(Keycode::Num7), mousebutton: None, is_down: false, just: false },
+            u8: Button { keycode: Some(Keycode::Num8), mousebutton: None, is_down: false, just: false },
+            u9: Button { keycode: Some(Keycode::Num9), mousebutton: None, is_down: false, just: false },
+            u0: Button { keycode: Some(Keycode::Num0), mousebutton: None, is_down: false, just: false },
+
+            shift: Button { keycode: Some(Keycode::LShift), mousebutton: None, is_down: false, just: false },
+
             mouse_pos: (0,0),
             mouse_delta: (0,0), 
         }
@@ -394,7 +556,7 @@ impl Input {
 
     /// Finds what this keycode means (up, down, fire, ..) and updates the respective state
     fn register_keydown(&mut self, keycode: Keycode) {
-        for b in [&mut self.up, &mut self.down, &mut self.left, &mut self.right, &mut self.fire].iter_mut() {
+        for b in [&mut self.up, &mut self.down, &mut self.left, &mut self.right, &mut self.fire, &mut self.u0, &mut self.u1, &mut self.u2, &mut self.u3, &mut self.u4, &mut self.u5, &mut self.u6, &mut self.u7, &mut self.u8, &mut self.u9, &mut self.shift].iter_mut() {
             if b.keycode.is_some() {
                 if b.keycode.unwrap() == keycode {
                     b.is_down = true;
@@ -406,7 +568,7 @@ impl Input {
 
     /// Finds what this keycode means (up, down, fire, ..) and updates the respective state
     fn register_keyup(&mut self, keycode: Keycode) {
-        for b in [&mut self.up, &mut self.down, &mut self.left, &mut self.right, &mut self.fire].iter_mut() {
+        for b in [&mut self.up, &mut self.down, &mut self.left, &mut self.right, &mut self.fire, &mut self.u0, &mut self.u1, &mut self.u2, &mut self.u3, &mut self.u4, &mut self.u5, &mut self.u6, &mut self.u7, &mut self.u8, &mut self.u9, &mut self.shift].iter_mut() {
             if b.keycode.is_some() {
                 if b.keycode.unwrap() == keycode {
                     b.is_down = false;
@@ -418,7 +580,7 @@ impl Input {
 
     /// Finds what this mouse button means (up, down, fire, ..) and updates the respective state
     fn register_mouse_button_down(&mut self, mousebutton: MouseButton) {
-        for b in [&mut self.up, &mut self.down, &mut self.left, &mut self.right, &mut self.fire].iter_mut() {
+        for b in [&mut self.up, &mut self.down, &mut self.left, &mut self.right, &mut self.fire, &mut self.u0, &mut self.u1, &mut self.u2, &mut self.u3, &mut self.u4, &mut self.u5, &mut self.u6, &mut self.u7, &mut self.u8, &mut self.u9, &mut self.shift].iter_mut() {
             if b.mousebutton.is_some() {
                 if b.mousebutton.unwrap() == mousebutton {
                     b.is_down = true;
@@ -430,7 +592,7 @@ impl Input {
 
     /// Finds what this mouse button means (up, down, fire, ..) and updates the respective state
     fn register_mouse_button_up(&mut self, mousebutton: MouseButton) {
-        for b in [&mut self.up, &mut self.down, &mut self.left, &mut self.right, &mut self.fire].iter_mut() {
+        for b in [&mut self.up, &mut self.down, &mut self.left, &mut self.right, &mut self.fire, &mut self.u0, &mut self.u1, &mut self.u2, &mut self.u3, &mut self.u4, &mut self.u5, &mut self.u6, &mut self.u7, &mut self.u8, &mut self.u9, &mut self.shift].iter_mut() {
             if b.mousebutton.is_some() {
                 if b.mousebutton.unwrap() == mousebutton {
                     b.is_down = false;
@@ -442,7 +604,7 @@ impl Input {
 
     /// Call this once every loop, before taking input. Now it only changes just to false for all keys
     fn refresh(&mut self) {
-        for b in [&mut self.up, &mut self.down, &mut self.left, &mut self.right, &mut self.fire].iter_mut() {
+        for b in [&mut self.up, &mut self.down, &mut self.left, &mut self.right, &mut self.fire, &mut self.u0, &mut self.u1, &mut self.u2, &mut self.u3, &mut self.u4, &mut self.u5, &mut self.u6, &mut self.u7, &mut self.u8, &mut self.u9, &mut self.shift].iter_mut() {
             b.just = false;
         }
     }
@@ -481,7 +643,7 @@ impl TankAI {
         
         let id = self.id;
 
-        if tanks.get(&id).is_some() {
+        if tanks.contains_key(&id) {
             let con_tankp = tanks.get(&id).unwrap().physics;
             let mut movedir = (0.,0.);
 
@@ -643,11 +805,11 @@ impl Map {
 
     /// Finds the physics by u128 key, searches in tanks, bullets and shapes
     fn get_physics(&self, k: &u128) -> Option<&Physics> {
-        if self.tanks.get(k).is_some() {
+        if self.tanks.contains_key(k) {
             Some(&self.tanks.get(k).unwrap().physics)
-        } else if self.shapes.get(k).is_some() {
+        } else if self.shapes.contains_key(k) {
             Some(&self.shapes.get(k).unwrap().physics)
-        } else if self.bullets.get(k).is_some() {
+        } else if self.bullets.contains_key(k) {
             Some(&self.bullets.get(k).unwrap().physics)
         } else {
             panic!()
@@ -656,9 +818,9 @@ impl Map {
 
     /// Finds the physics by u128 key, searches in tanks, bullets and shapes
     fn get_physics_mut(&mut self, k: &u128) -> Option<&mut Physics> {
-        if self.shapes.get(k).is_some() {
+        if self.shapes.contains_key(k) {
             Some(&mut self.shapes.get_mut(k).unwrap().physics)
-        } else if self.bullets.get(k).is_some() {
+        } else if self.bullets.contains_key(k) {
             Some(&mut self.bullets.get_mut(k).unwrap().physics)
         } else {
             Some(&mut self.tanks.get_mut(k).unwrap().physics)
@@ -778,13 +940,46 @@ impl Map {
                             self.get_physics_mut(&a).unwrap().collide(&mut kp, delta);
 
                             // if k is a tank, and a is a bullet
+                            // set last hit to source tank
                             if self.tanks.contains_key(&k) && self.bullets.contains_key(&a) {
                                 self.tanks.get_mut(&k).unwrap().last_hit_id = self.bullets.get_mut(&a).unwrap().source_tank_id;
+                            } // other way around
+                            else if self.tanks.contains_key(&a) && self.bullets.contains_key(&k) {
+                                self.tanks.get_mut(&a).unwrap().last_hit_id = self.bullets.get_mut(&k).unwrap().source_tank_id;
                             }
 
-                            // if a is a tank, and k is a bullet
-                            if self.tanks.contains_key(&a) && self.bullets.contains_key(&k) {
-                                self.tanks.get_mut(&a).unwrap().last_hit_id = self.bullets.get_mut(&k).unwrap().source_tank_id;
+                            // if k is a tank, and a is a tank
+                            // set last hit
+                            if self.tanks.contains_key(&k) && self.tanks.contains_key(&a) {
+                                self.tanks.get_mut(&k).unwrap().last_hit_id = *a;
+                                // other way around 
+                                self.tanks.get_mut(&a).unwrap().last_hit_id = k;
+                            }
+
+                            // if k is a tank, and a is a shape
+                            // add xp to the tank, if the shape hp is lees than 0 (it just died)
+                            if self.tanks.contains_key(&k) && self.shapes.contains_key(&a) {
+                                if self.shapes.get(&a).unwrap().physics.hp < 0. {
+                                    self.tanks.get_mut(&k).unwrap().evolution.xp += self.shapes.get_mut(&a).unwrap().physics.collision_size.powi(2)*0.01;
+                                }
+                            } // other way around
+                            else if self.tanks.contains_key(&a) && self.shapes.contains_key(&k) {
+                                if self.shapes.get(&k).unwrap().physics.hp < 0. {
+                                    self.tanks.get_mut(&a).unwrap().evolution.xp += self.shapes.get_mut(&k).unwrap().physics.collision_size.powi(2)*0.01;
+                                }
+                            }
+
+                            // if k is a bullet, and a is a shape
+                            // add xp to the source tank, if it exists, and if the shape hp is lees than 0 (it just died)
+                            if self.bullets.contains_key(&k) && self.shapes.contains_key(&a) {
+                                if self.tanks.contains_key(&self.bullets.get(&k).unwrap().source_tank_id) && self.shapes.get(&a).unwrap().physics.hp < 0.  {
+                                    self.tanks.get_mut(&self.bullets.get(&k).unwrap().source_tank_id).unwrap().evolution.xp += self.shapes.get_mut(&a).unwrap().physics.collision_size.powi(2)*0.01; 
+                                }
+                            } // other way around
+                            else if self.bullets.contains_key(&a) && self.shapes.contains_key(&k) {
+                                if self.tanks.contains_key(&self.bullets.get(&a).unwrap().source_tank_id) && self.shapes.get(&k).unwrap().physics.hp < 0. {
+                                    self.tanks.get_mut(&self.bullets.get(&a).unwrap().source_tank_id).unwrap().evolution.xp += self.shapes.get_mut(&k).unwrap().physics.collision_size.powi(2)*0.01;
+                                }
                             }
                         }
                     }
@@ -846,7 +1041,6 @@ impl Map {
                     } else {
                         0.5 * size.powi(2)
                     },
-                    object_id: shape_id,
                 },
                 texture: if is_hexagon {
                     "hexagon".to_owned()
@@ -906,41 +1100,18 @@ fn main() {
         viewport_size: (1024, 1024)
     };
 
+    // update the physics a little bit before anything else happens
+    for x in 0..5000 {
+        map.update_physics(0.1);
+        if x%500 == 0 {
+            println!("loading: {}%", x/50);
+        }
+    }
+
     // add player
     map.tanks.insert(
         playerid,
-        Tank {
-            physics: Physics {
-                x: thread_rng().gen::<f64>()*map.map_size.0*2. - map.map_size.0,
-                y: thread_rng().gen::<f64>()*map.map_size.1*2. - map.map_size.1,
-                xvel: 0.,
-                yvel: 0.,
-                weight: 100.,
-                rot: 0.,
-                rotvel: 0.,
-                collision_size: 35.,
-                hp: 100.,
-                max_hp: 100.,
-                hp_regen: 2.,
-                object_id: playerid,
-            },
-            turrets: vec![Turret {
-                projectile_impulse: 2_000.,
-                projectile_weight: 2.,
-                projectile_collision_size: 10.,
-                projectile_hp_regen: -0.5,
-                projectile_hp: 2.,
-                reload_time: 0.2,
-                inaccuracy: 1.,
-                relative_direction: 0.,
-                time_to_next_shot: 0.
-            }],
-            power: 30000.,
-            rot_power: 50000.,
-            bullet_ids: vec![],
-            texture: "basic".to_owned(),
-            last_hit_id: 0,
-        }
+        EVOLUTION_TREE.get(&"basic".to_string()).unwrap().0.clone()
     );
 
     let mut last_frame_start;
@@ -1013,80 +1184,106 @@ fn main() {
             // tanks will be network or AI controlled on the server (also player controlled on LAN multiplayer server), and player or AI controlled in singleplayer
             map.tanks.insert(
                 ai_tank_id,
-                Tank {
-                    physics: Physics {
-                        x: thread_rng().gen::<f64>()*map.map_size.0*2. - map.map_size.0,
-                        y: thread_rng().gen::<f64>()*map.map_size.1*2. - map.map_size.1,
-                        xvel: 0.,
-                        yvel: 0.,
-                        weight: 100.,
-                        rot: 0.,
-                        rotvel: 0.,
-                        collision_size: 35.,
-                        hp: 100.,
-                        max_hp: 100.,
-                        hp_regen: 2.,
-                        object_id: ai_tank_id,
-                    },
-                    turrets: vec![Turret {
-                        projectile_impulse: 2_000.,
-                        projectile_weight: 2.,
-                        projectile_collision_size: 10.,
-                        projectile_hp_regen: -0.5,
-                        projectile_hp: 2.,
-                        reload_time: 0.2,
-                        inaccuracy: 1.,
-                        relative_direction: 0.,
-                        time_to_next_shot: 0.
-                    }],
-                    power: 30000.,
-                    rot_power: 50000.,
-                    bullet_ids: vec![],
-                    texture: "basic".to_owned(),
-                    last_hit_id: 0,
-                }
+                EVOLUTION_TREE.get(&"basic".to_string()).unwrap().0.clone()
             );
+            let ph = &mut map.tanks.get_mut(&ai_tank_id).unwrap().physics;
+            ph.x = thread_rng().gen::<f64>()*map.map_size.0*2. - map.map_size.0;
+            ph.y = thread_rng().gen::<f64>()*map.map_size.1*2. - map.map_size.1;
         }
 
         // PLAYER CONTROL
 
-        if map.tanks.get(&playerid).is_some() {
+        if map.tanks.contains_key(&playerid) {
+            let player = map.tanks.get_mut(&playerid).unwrap();
+
             //movement
             if input.up.is_down && input.left.is_down && !input.down.is_down && !input.right.is_down {
-                map.tanks.get_mut(&playerid).unwrap().move_in_dir((-0.707,-0.707), delta);
+                player.move_in_dir((-0.707,-0.707), delta);
             }
             else if input.down.is_down && input.left.is_down && !input.up.is_down && !input.right.is_down {
-                map.tanks.get_mut(&playerid).unwrap().move_in_dir((-0.707,0.707), delta);
+                player.move_in_dir((-0.707,0.707), delta);
             }
             else if input.up.is_down && input.right.is_down && !input.down.is_down && !input.left.is_down {
-                map.tanks.get_mut(&playerid).unwrap().move_in_dir((0.707,-0.707), delta);
+                player.move_in_dir((0.707,-0.707), delta);
             }
             else if input.down.is_down && input.right.is_down && !input.up.is_down && !input.left.is_down {
-                map.tanks.get_mut(&playerid).unwrap().move_in_dir((0.707,0.707), delta);
+                player.move_in_dir((0.707,0.707), delta);
             }
             else if input.up.is_down {
-                map.tanks.get_mut(&playerid).unwrap().move_in_dir((0.,-1.), delta);
+                player.move_in_dir((0.,-1.), delta);
             }
             else if input.down.is_down {
-                map.tanks.get_mut(&playerid).unwrap().move_in_dir((0.,1.), delta);
+                player.move_in_dir((0.,1.), delta);
             }
             else if input.left.is_down {
-                map.tanks.get_mut(&playerid).unwrap().move_in_dir((-1.,0.), delta);
+                player.move_in_dir((-1.,0.), delta);
             }
             else if input.right.is_down {
-                map.tanks.get_mut(&playerid).unwrap().move_in_dir((1.,0.), delta);
+                player.move_in_dir((1.,0.), delta);
             }
             else {
                 // brake
-                map.tanks.get_mut(&playerid).unwrap().move_in_dir((0.,0.), delta);
+                player.move_in_dir((0.,0.), delta);
             }
 
             //rotation
-            map.tanks.get_mut(&playerid).unwrap().rotate_to(camera.to_map_coords(input.mouse_pos));
+            player.rotate_to(camera.to_map_coords(input.mouse_pos));
 
             //firing
             if input.fire.is_down {
-                map.tanks.get_mut(&playerid).unwrap().fire(&mut map.bullets, playerid);
+                player.fire(&mut map.bullets, playerid);
+            }
+
+            // Evolution
+
+            // promoting
+            if input.shift.is_down {
+                println!("Current class: {}", player.evolution.class);
+                let classes = &EVOLUTION_TREE.get(&player.evolution.class).expect("this class does not exist in the evolution tree").1;
+                for x in 0..classes.len() {
+                    println!("Press {} to evolve to {:?}", x+1,  classes[x]);
+                    let key = match x {
+                        0 => input.u1,
+                        1 => input.u2,
+                        2 => input.u3,
+                        3 => input.u4,
+                        4 => input.u5,
+                        5 => input.u6,
+                        6 => input.u7,
+                        7 => input.u8,
+                        8 => input.u9,
+                        _ => {eprintln!("Not enough keys on the number row to be able to evolve to all the tanks. A tank should be able to evolve to at most 9 other tanks"); panic!()}
+                    };
+                    if key.is_down && key.just {
+                        Evolution::promote(player, classes[x].clone());
+                    }
+                }
+            // upgrading levels
+            } else {
+                if input.u1.just && input.u1.is_down {
+                    if player.evolution.xp > 100. {
+                        player.physics.max_hp += 10.;
+                        player.evolution.xp -= 100.;
+                        println!("upgraded max_hp to {:.0}", player.physics.max_hp);
+                    }
+                    println!("xp: {:.0}", player.evolution.xp);
+                }
+                if input.u2.just && input.u2.is_down {
+                    if player.evolution.xp > 100. {
+                        player.physics.hp_regen += 0.2;
+                        player.evolution.xp -= 100.;
+                        println!("upgraded hp_regen to {:.2}", player.physics.hp_regen);
+                    }
+                    println!("xp: {:.0}", player.evolution.xp);
+                }
+                if input.u3.just && input.u3.is_down {
+                    if player.evolution.xp > 100. {
+                        player.turrets[0].reload_time *= 0.9;
+                        player.evolution.xp -= 100.;
+                        println!("upgraded to reload_time {:.4}", player.turrets[0].reload_time);
+                    }
+                    println!("xp: {:.0}", player.evolution.xp);
+                }
             }
         }
 
@@ -1104,7 +1301,7 @@ fn main() {
         // CAMERA
 
         // track tg tank if it exists, otherwise don't move
-        if map.tanks.get(&camera.target_tank).is_some() {
+        if map.tanks.contains_key(&camera.target_tank) {
             camera.track(delta, &map.tanks.get(&camera.target_tank).unwrap().physics);
             // camera.zoom = 0.25;
         }
@@ -1139,6 +1336,9 @@ fn main() {
         canvas.present();
 
         delta = Instant::now().duration_since(last_frame_start).as_secs_f64();
-        println!("fps: {:.0}", 1./delta);
+
+        // TEST PRINTS
+        // println!("fps: {:.0}", 1./delta);
+        // println!("player_xp: {:.0}", map.tanks.get(&playerid).unwrap().evolution.xp);
     }
 }
