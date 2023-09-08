@@ -97,10 +97,10 @@ lazy_static! {
                 power: 25000.,
                 rot_power: 60000.,
                 bullet_ids: vec![],
-                texture: "basic".to_owned(),
+                texture: "long".to_owned(),
                 last_hit_id: 0,
                 evolution: Evolution::new(),
-                camera_zoom: 1.0
+                camera_zoom: 0.7
             }, vec![
                 "very long".to_string()],
             0.
@@ -335,11 +335,21 @@ impl Evolution {
     /// 
     /// Does not take `&self`, because the evolution information is contained in the `&mut Tank` it takes
     fn promote(tank: &mut Tank, class: String) {
+        let old_tank = tank.clone();
+        *tank = EVOLUTION_TREE.get(&class).unwrap().0.clone();
+
         let ev = &mut tank.evolution;
         let ph = &mut tank.physics;
-
-        ev.class = class.clone();
-        *tank = EVOLUTION_TREE.get(&class).unwrap().0.clone();
+        ev.class = class;
+        ev.xp = old_tank.evolution.xp;
+        tank.last_hit_id = old_tank.last_hit_id;
+        ph.x = old_tank.physics.x;
+        ph.y = old_tank.physics.y;
+        ph.xvel = old_tank.physics.xvel;
+        ph.yvel = old_tank.physics.yvel;
+        ph.rot = old_tank.physics.rot;
+        ph.rotvel = old_tank.physics.rotvel;
+        ph.hp = old_tank.physics.hp;
     }
 }
 
@@ -1075,11 +1085,13 @@ fn main() {
     let texture_creator = canvas.texture_creator();
     // HashMap of all the textures used in the game. Later will read all textures form the textures folder and add them to the hashmap by the filename without the extension
     let mut textures: HashMap<String, Texture> = HashMap::new();
-    textures.insert("basic".to_owned(), texture_creator.load_texture("textures/basic.png").unwrap());
     textures.insert("bullet".to_owned(), texture_creator.load_texture("textures/bullet.png").unwrap());
     textures.insert("square".to_owned(), texture_creator.load_texture("textures/square.png").unwrap());
     textures.insert("hexagon".to_owned(), texture_creator.load_texture("textures/hexagon.png").unwrap());
     textures.insert("triangle".to_owned(), texture_creator.load_texture("textures/triangle.png").unwrap());
+
+    textures.insert("basic".to_owned(), texture_creator.load_texture("textures/basic.png").unwrap());
+    textures.insert("long".to_owned(), texture_creator.load_texture("textures/long.png").unwrap());
 
     // Initialize my own things
     let mut map = Map {
@@ -1303,6 +1315,7 @@ fn main() {
         // track tg tank if it exists, otherwise don't move
         if map.tanks.contains_key(&camera.target_tank) {
             camera.track(delta, &map.tanks.get(&camera.target_tank).unwrap().physics);
+            camera.zoom = map.tanks.get(&camera.target_tank).unwrap().camera_zoom;
             // camera.zoom = 0.25;
         }
 
