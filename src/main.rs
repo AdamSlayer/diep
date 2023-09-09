@@ -1,15 +1,17 @@
 use rand::prelude::*;
 use rand_distr::Distribution;
+use rand_distr::num_traits::Pow;
 use sdl2::event::Event;
 use sdl2::image::LoadTexture;
 use sdl2::keyboard::Keycode;
+use sdl2::libc::time;
 use sdl2::mouse::MouseButton;
 use sdl2::pixels::Color;
 use sdl2::rect::{Point, Rect};
-use sdl2::render::{Canvas, Texture};
+use sdl2::render::{Canvas, Texture, TextureCreator};
 use sdl2::video::Window;
 use std::collections::{HashMap, HashSet};
-use std::time::Instant;
+use std::time::{Instant, self};
 
 extern crate lazy_static;
 
@@ -39,33 +41,154 @@ lazy_static! {
                     rot: 0.,
                     rotvel: 0.,
                     collision_size: 35.,
-                    hp: 100.,
-                    max_hp: 100.,
-                    hp_regen: 2.,
+                    hp: 120.,
+                    max_hp: 120.,
+                    hp_regen: 4.,
                 },
                 turrets: vec![Turret {
-                    projectile_impulse: 2_000.,
-                    projectile_weight: 2.,
-                    projectile_collision_size: 10.,
+                    projectile_impulse: 3_000.,
+                    projectile_weight: 3.,
+                    projectile_collision_size: 12.,
                     projectile_hp_regen: -0.5,
-                    projectile_hp: 2.,
-                    reload_time: 0.2,
+                    projectile_hp: 3.,
+                    reload_time: 0.3,
                     inaccuracy: 1.,
-                    relative_direction: 0.,
-                    time_to_next_shot: 0.
+                    relative_position: (0.,-52.),
+                    ..Default::default()
                 }],
                 power: 30000.,
                 rot_power: 450.,
                 bullet_ids: vec![],
                 texture: "basic".to_owned(),
                 last_hit_id: 0,
-                evolution: Evolution::new(),
-                camera_zoom: 1.0
+                evolution: Evolution::new()
             }, vec![
                 "double".to_string(),
                 "long".to_string(),
-                "wide".to_string()],
-            0.
+                "wide".to_string(),
+                "bomber".to_string()],
+            1000.
+        ));
+
+
+        hash_set.insert("machine".to_string(), (
+            Tank {
+                physics: Physics {
+                    x: 0.,
+                    y: 0.,
+                    xvel: 0.,
+                    yvel: 0.,
+                    weight: 500.,
+                    rot: 0.,
+                    rotvel: 0.,
+                    collision_size: 75.,
+                    hp: 500.,
+                    max_hp: 500.,
+                    hp_regen: 4.,
+                },
+                turrets: vec![Turret {
+                    projectile_impulse: 8_000.,
+                    projectile_weight: 6.,
+                    projectile_collision_size: 15.,
+                    projectile_hp_regen: -3.,
+                    projectile_hp: 6.,
+                    reload_time: 0.15,
+                    inaccuracy: 3.,
+                    relative_position: (0.,-95.),
+                    ..Default::default()
+                }],
+                power: 18000.,
+                rot_power: 120.,
+                bullet_ids: vec![],
+                texture: "basic".to_owned(),
+                last_hit_id: 0,
+                evolution: Evolution::new()
+            }, vec![
+                "double".to_string(),
+                "long".to_string(),
+                "wide".to_string(),
+                "bomber".to_string()],
+            1000.
+        ));
+
+
+        hash_set.insert("bomber".to_string(), (
+            Tank {
+                physics: Physics {
+                    x: 0.,
+                    y: 0.,
+                    xvel: 0.,
+                    yvel: 0.,
+                    weight: 150.,
+                    rot: 0.,
+                    rotvel: 0.,
+                    collision_size: 45.,
+                    hp: 150.,
+                    max_hp: 150.,
+                    hp_regen: 6.,
+                },
+                turrets: vec![Turret {
+                    projectile_impulse: 2_000.,
+                    projectile_weight: 20.,
+                    projectile_collision_size: 12.,
+                    projectile_hp_regen: -3.,
+                    projectile_hp: 15.,
+                    reload_time: 3.,
+                    inaccuracy: 1.,
+                    relative_position: (0.,-70.),
+                    projectile_texture: "bomb".to_string(),
+                    ..Default::default()
+                }],
+                power: 50000.,
+                rot_power: 600.,
+                bullet_ids: vec![],
+                texture: "wide".to_owned(),
+                last_hit_id: 0,
+                evolution: Evolution::new()
+            }, vec![
+                "fatbomber".to_string()
+            ],
+            1000.
+        ));
+
+
+        hash_set.insert("fatbomber".to_string(), (
+            Tank {
+                physics: Physics {
+                    x: 0.,
+                    y: 0.,
+                    xvel: 0.,
+                    yvel: 0.,
+                    weight: 300.,
+                    rot: 0.,
+                    rotvel: 0.,
+                    collision_size: 60.,
+                    hp: 250.,
+                    max_hp: 250.,
+                    hp_regen: 10.,
+                },
+                turrets: vec![Turret {
+                    projectile_impulse: 15_000.,
+                    projectile_weight: 100.,
+                    projectile_collision_size: 36.,
+                    projectile_hp_regen: -8.,
+                    projectile_hp: 40.,
+                    reload_time: 12.,
+                    inaccuracy: 1.,
+                    relative_position: (0.,-95.),
+                    projectile_texture: "bomb".to_string(),
+                    ..Default::default()
+                }],
+                power: 70000.,
+                rot_power: 800.,
+                bullet_ids: vec![],
+                texture: "wide".to_owned(),
+                last_hit_id: 0,
+                evolution: Evolution::new()
+            }, vec![
+                // evolve to
+            ],
+            1000.
         ));
 
         hash_set.insert("long".to_string(), (
@@ -75,35 +198,158 @@ lazy_static! {
                     y: 0.,
                     xvel: 0.,
                     yvel: 0.,
-                    weight: 100.,
+                    weight: 90.,
                     rot: 0.,
                     rotvel: 0.,
                     collision_size: 35.,
-                    hp: 100.,
-                    max_hp: 100.,
-                    hp_regen: 2.,
+                    hp: 80.,
+                    max_hp: 80.,
+                    hp_regen: 4.,
                 },
                 turrets: vec![Turret {
-                    projectile_impulse: 18_000.,
-                    projectile_weight: 12.,
-                    projectile_collision_size: 15.,
-                    projectile_hp_regen: -7.,
-                    projectile_hp: 15.,
-                    reload_time: 0.8,
-                    inaccuracy: 0.,
-                    relative_direction: 0.,
-                    time_to_next_shot: 0.
+                    projectile_impulse: 15_000.,
+                    projectile_weight: 11.,
+                    projectile_collision_size: 11.,
+                    projectile_hp_regen: -8.,
+                    projectile_hp: 14.,
+                    reload_time: 1.0,
+                    relative_position: (0.,-60.),
+                    ..Default::default()
                 }],
-                power: 20000.,
-                rot_power: 100.,
+                power: 15000.,
+                rot_power: 80.,
                 bullet_ids: vec![],
                 texture: "long".to_owned(),
                 last_hit_id: 0,
-                evolution: Evolution::new(),
-                camera_zoom: 0.6
+                evolution: Evolution::new()
             }, vec![
                 "very long".to_string()],
-            0.
+            1000.
+        ));
+
+        hash_set.insert("double".to_string(), (
+            Tank {
+                physics: Physics {
+                    x: 0.,
+                    y: 0.,
+                    xvel: 0.,
+                    yvel: 0.,
+                    weight: 140.,
+                    rot: 0.,
+                    rotvel: 0.,
+                    collision_size: 40.,
+                    hp: 140.,
+                    max_hp: 140.,
+                    hp_regen: 4.,
+                },
+                turrets: vec![
+                Turret {
+                    projectile_impulse: 800.,
+                    projectile_weight: 2.0,
+                    projectile_collision_size: 8.,
+                    projectile_hp_regen: -1.2,
+                    projectile_hp: 2.,
+                    reload_time: 0.22,
+                    inaccuracy: 2.,
+                    relative_position: (-20.,-50.),
+                    ..Default::default()
+                },
+                Turret {
+                    projectile_impulse: 800.,
+                    projectile_weight: 2.0,
+                    projectile_collision_size: 8.,
+                    projectile_hp_regen: -1.2,
+                    projectile_hp: 2.,
+                    reload_time: 0.22,
+                    inaccuracy: 2.,
+                    relative_position: (20.,-50.),
+                    ..Default::default()
+                },],
+                power: 30000.,
+                rot_power: 400.,
+                bullet_ids: vec![],
+                texture: "double".to_owned(),
+                last_hit_id: 0,
+                evolution: Evolution::new()
+            }, vec![
+                "machine".to_string()],
+            1000.
+        ));
+
+        hash_set.insert("wide".to_string(), (
+            Tank {
+                physics: Physics {
+                    x: 0.,
+                    y: 0.,
+                    xvel: 0.,
+                    yvel: 0.,
+                    weight: 200.,
+                    rot: 0.,
+                    rotvel: 0.,
+                    collision_size: 50.,
+                    hp: 200.,
+                    max_hp: 200.,
+                    hp_regen: 4.,
+                },
+                turrets: vec![Turret {
+                    projectile_impulse: 55_000.,
+                    projectile_weight: 90.,
+                    projectile_collision_size: 30.,
+                    projectile_hp_regen: -20.,
+                    projectile_hp: 80.,
+                    reload_time: 1.5,
+                    inaccuracy: 1.,
+                    relative_position: (0.,-75.),
+                    ..Default::default()
+                }],
+                power: 20000.,
+                rot_power: 120.,
+                bullet_ids: vec![],
+                texture: "wide".to_owned(),
+                last_hit_id: 0,
+                evolution: Evolution::new()
+            }, vec![
+                "superwide".to_string(),
+                ],
+            1000.
+        ));
+
+        hash_set.insert("superwide".to_string(), (
+            Tank {
+                physics: Physics {
+                    x: 0.,
+                    y: 0.,
+                    xvel: 0.,
+                    yvel: 0.,
+                    weight: 400.,
+                    rot: 0.,
+                    rotvel: 0.,
+                    collision_size: 65.,
+                    hp: 400.,
+                    max_hp: 350.,
+                    hp_regen: 6.,
+                },
+                turrets: vec![Turret {
+                    projectile_impulse: 130_000.,
+                    projectile_weight: 180.,
+                    projectile_collision_size: 40.,
+                    projectile_hp_regen: -50.,
+                    projectile_hp: 150.,
+                    reload_time: 3.,
+                    inaccuracy: 1.,
+                    relative_position: (0.,-110.),
+                    ..Default::default()
+                }],
+                power: 25000.,
+                rot_power: 150.,
+                bullet_ids: vec![],
+                texture: "wide".to_owned(),
+                last_hit_id: 0,
+                evolution: Evolution::new()
+            }, vec![
+                // evolve to
+            ],
+            3000.
         ));
 
         // Add more entries here using hash_set.insert() as needed
@@ -203,12 +449,12 @@ impl Physics {
     fn collide(&mut self, b: &Physics, delta: f64) {
         if (self.collision_size + b.collision_size) > self.dist(&b) {
             let speed_diff = vector_lenght(vector_diff((b.xvel, b.yvel), (self.xvel, self.yvel)));
-            let s = delta*256.*(speed_diff+64.);
+            let s = delta*(speed_diff+64.)*16.;
             self.xvel *= (-delta*4.).exp();
             self.yvel *= (-delta*4.).exp();
             let n = normalize((self.x - b.x, self.y - b.y));
-            self.push((n.0*s, n.1*s));
-            self.hp -= (s/1024.).min(b.hp);
+            self.push((n.0*s*((b.weight.sqrt()+self.weight.sqrt())), n.1*s*((b.weight.sqrt()+self.weight.sqrt()))));
+            self.hp -= (s/16.).min(b.hp);
             self.push_rot(delta*speed_diff*angle_diff(f64::atan2(b.x - self.x, b.y - self.y).to_degrees(), f64::atan2((b.x + b.xvel) - (self.x + self.xvel), (b.y + b.yvel) - (self.y + self.yvel)).to_degrees())/-1.);
         }
     }
@@ -227,7 +473,7 @@ struct Shape {
 }
 impl Shape {
     fn render(&self, canvas: &mut Canvas<Window>, camera: &Camera, textures: &HashMap<String, Texture>) {
-        let rendersize = (self.physics.collision_size*4.*camera.zoom) as u32;
+        let rendersize = (self.physics.collision_size*4.*camera.zoom*((camera.viewport_size.0.pow(2)+camera.viewport_size.1.pow(2)) as f64).sqrt()/1024.) as u32;
         let texture = textures.get(&self.texture).unwrap();
         let shape_screen_pos = camera.to_screen_coords((self.physics.x, self.physics.y));
 
@@ -243,10 +489,10 @@ impl Shape {
         
         // render health bar
         if self.physics.hp < self.physics.max_hp {
-            canvas.set_draw_color(Color::RGB(63,63,63));
-            canvas.draw_line((shape_screen_pos.0 - (50. * camera.zoom) as i32, shape_screen_pos.1 - (60. * camera.zoom) as i32), (shape_screen_pos.0 + (50. * camera.zoom) as i32, shape_screen_pos.1 - (60. * camera.zoom) as i32)).unwrap();
+            canvas.set_draw_color(Color::RGB(63,15,31));
+            canvas.draw_line((shape_screen_pos.0 - (50 * rendersize / 266) as i32, shape_screen_pos.1 - (60 * rendersize / 266) as i32), (shape_screen_pos.0 + (50 * rendersize / 266) as i32, shape_screen_pos.1 - (60 * rendersize / 266) as i32)).unwrap();
             canvas.set_draw_color(Color::RGB(0,255,0));
-            canvas.draw_line((shape_screen_pos.0 - (50. * camera.zoom) as i32, shape_screen_pos.1 - (60. * camera.zoom) as i32), (shape_screen_pos.0 - (50. * camera.zoom) as i32  + (self.physics.hp/self.physics.max_hp*100.*camera.zoom) as i32, shape_screen_pos.1 - (60. * camera.zoom) as i32)).unwrap();
+            canvas.draw_line((shape_screen_pos.0 - (50 * rendersize / 266) as i32, shape_screen_pos.1 - (60 * rendersize / 266) as i32), (shape_screen_pos.0 - (50 * rendersize / 266) as i32  + (self.physics.hp/self.physics.max_hp*100. * rendersize as f64 / 266.) as i32, shape_screen_pos.1 - (60 * rendersize / 266) as i32)).unwrap();
         }
     }
 }
@@ -262,6 +508,8 @@ struct Turret {
     projectile_hp_regen: f64,
     /// also the max damage
     projectile_hp: f64,
+    /// affects projectile type, like bullet, bomb drone, trap etc
+    projectile_texture: String,
     /// in micros, first shot is immediatae
     /// 
     /// should be >0.033 (30 shots per second), because more shots/second than fps makes glitches
@@ -271,10 +519,29 @@ struct Turret {
     inaccuracy: f64,
     /// in degrees, turret facing relative to tank facing
     relative_direction: f64,
+    /// position where the bullet spawns
+    relative_position: (f64, f64),
 
     // start of changing properties
 
     time_to_next_shot: f64
+}
+impl Default for Turret {
+    fn default() -> Self {
+        Self {
+            projectile_impulse: 1000.,
+            projectile_weight: 1.,
+            projectile_collision_size: 10.,
+            projectile_hp_regen: -1.,
+            projectile_hp: 1.,
+            projectile_texture: "bullet".to_string(),
+            reload_time: 1.,
+            inaccuracy: 0.,
+            relative_direction: 0.,
+            relative_position: (0.,-100.),
+            time_to_next_shot: 0.,
+        }
+    }
 }
 impl Turret {
     /// Returns an Option<Bullet> if fired, and None otherwise.
@@ -310,8 +577,10 @@ impl Turret {
             bullet_physics.weight = self.projectile_weight;
             bullet_physics.collision_size = self.projectile_collision_size;
             bullet_physics.push(fire_vector);
-            bullet_physics.x += self.relative_direction+tank_physics.rot.to_radians().sin()*(tank_physics.collision_size + self.projectile_collision_size)*1.01;
-            bullet_physics.y -= self.relative_direction+tank_physics.rot.to_radians().cos()*(tank_physics.collision_size + self.projectile_collision_size)*1.01;
+            bullet_physics.x += (self.relative_direction+tank_physics.rot).to_radians().cos()*(self.relative_position.0);
+            bullet_physics.x -= (self.relative_direction+tank_physics.rot).to_radians().sin()*(self.relative_position.1);
+            bullet_physics.y += (self.relative_direction+tank_physics.rot).to_radians().sin()*(self.relative_position.0);
+            bullet_physics.y += (self.relative_direction+tank_physics.rot).to_radians().cos()*(self.relative_position.1);
             bullet_physics.hp_regen = self.projectile_hp_regen;
             bullet_physics.hp = self.projectile_hp;
 
@@ -320,7 +589,7 @@ impl Turret {
             Some(Bullet {
                 physics: bullet_physics,
                 source_tank_id: tank_id,
-                texture: "bullet".to_owned()
+                texture: self.projectile_texture.to_owned()
             })
         }
     }
@@ -345,7 +614,7 @@ struct Evolution {
 impl Evolution {
     fn new() -> Self {
         Evolution {
-            xp: 1000000.,
+            xp: 0.,
             class: "basic".to_string(),
             hp_level: 0,
             regen_level: 0,
@@ -355,33 +624,40 @@ impl Evolution {
             bulletspeed_level: 0,
         }
     }
-
     /// Promotes a tank to a class. Does not check whether the tank can promote to this class.
     /// 
     /// Does not take `&self`, because the evolution information is contained in the `&mut Tank` it takes
     fn promote(tank: &mut Tank, class: String) {
-        let old_tank = tank.clone();
-        *tank = EVOLUTION_TREE.get(&class).unwrap().0.clone();
+        if tank.evolution.xp >= EVOLUTION_TREE.get(&class).unwrap().2 {
+            tank.evolution.xp -= EVOLUTION_TREE.get(&class).unwrap().2;
 
-        let ev = &mut tank.evolution;
-        let ph = &mut tank.physics;
-        ev.class = class;
-        ev.xp = old_tank.evolution.xp;
-        tank.last_hit_id = old_tank.last_hit_id;
-        ph.x = old_tank.physics.x;
-        ph.y = old_tank.physics.y;
-        ph.xvel = old_tank.physics.xvel;
-        ph.yvel = old_tank.physics.yvel;
-        ph.rot = old_tank.physics.rot;
-        ph.rotvel = old_tank.physics.rotvel;
-        ph.hp = old_tank.physics.hp;
+            let old_tank = tank.clone();
+            *tank = EVOLUTION_TREE.get(&class).unwrap().0.clone();
+            println!("{}", tank.turrets[0].projectile_texture);
 
-        ev.hp_level = old_tank.evolution.hp_level;
-        ev.regen_level = old_tank.evolution.regen_level;
-        ev.damage_level = old_tank.evolution.damage_level;
-        ev.reload_level = old_tank.evolution.reload_level;
-        ev.speed_level = old_tank.evolution.speed_level;
-        ev.bulletspeed_level = old_tank.evolution.bulletspeed_level;
+            let ev = &mut tank.evolution;
+            let ph = &mut tank.physics;
+            ev.class = class;
+            ev.xp = old_tank.evolution.xp;
+            tank.last_hit_id = old_tank.last_hit_id;
+            ph.x = old_tank.physics.x;
+            ph.y = old_tank.physics.y;
+            ph.xvel = old_tank.physics.xvel;
+            ph.yvel = old_tank.physics.yvel;
+            ph.rot = old_tank.physics.rot;
+            ph.rotvel = old_tank.physics.rotvel;
+            ph.hp = old_tank.physics.hp;
+
+            ev.hp_level = old_tank.evolution.hp_level;
+            ev.regen_level = old_tank.evolution.regen_level;
+            ev.damage_level = old_tank.evolution.damage_level;
+            ev.reload_level = old_tank.evolution.reload_level;
+            ev.speed_level = old_tank.evolution.speed_level;
+            ev.bulletspeed_level = old_tank.evolution.bulletspeed_level;
+            Evolution::level_refresh(tank);
+        } else {
+            println!("Not enough xp to promote. You need {} xp", EVOLUTION_TREE.get(&class).unwrap().2);
+        }
     }
 
     /// Makes the physical properties (hp, power, hp_regen etc.) of the tank match it's class and levels. Always call after changing a level or a class.
@@ -403,37 +679,37 @@ impl Evolution {
         }
 
         for l in 0..tank.evolution.hp_level.min(10) {
-            tank.physics.max_hp *= 1. + 0.15 * (1.1-0.1*l as f64);
+            tank.physics.max_hp *= 1. + 0.15 * (1.6-0.1*l as f64);
         }
     
         for l in 0..tank.evolution.regen_level.min(10) {
-            tank.physics.hp_regen *= 1. + 0.13 * (1.1-0.1*l as f64);
+            tank.physics.hp_regen *= 1. + 0.13 * (1.6-0.1*l as f64);
         }
     
         for l in 0..tank.evolution.reload_level.min(10) {
             for x in 0..tank.turrets.len() {
-                tank.turrets[x].reload_time *= 1. - 0.10 * (1.1-0.1*l as f64);
+                tank.turrets[x].reload_time *= 1. - 0.10 * (1.6-0.1*l as f64);
             }
         }
     
         // this increases projectile_impulse, projectile_weight, projectile_hp and projectile_hp_regen all by the same coefficient
         for l in 0..tank.evolution.damage_level.min(10) {
             for x in 0..tank.turrets.len() {
-                tank.turrets[x].projectile_hp *= 1. + 0.08 * (1.1-0.1*l as f64);
-                tank.turrets[x].projectile_hp_regen *= 1. + 0.08 * (1.1-0.1*l as f64);
-                tank.turrets[x].projectile_impulse *= 1. + 0.08 * (1.1-0.1*l as f64);
-                tank.turrets[x].projectile_weight *= 1. + 0.08 * (1.1-0.1*l as f64);
+                tank.turrets[x].projectile_hp *= 1. + 0.08 * (1.6-0.1*l as f64);
+                tank.turrets[x].projectile_hp_regen *= 1. + 0.08 * (1.6-0.1*l as f64);
+                tank.turrets[x].projectile_impulse *= 1. + 0.08 * (1.6-0.1*l as f64);
+                tank.turrets[x].projectile_weight *= 1. + 0.08 * (1.6-0.1*l as f64);
             }
         }
     
         for l in 0..tank.evolution.speed_level.min(10) {
-            tank.power *= 1. + 0.08 * (1.1-0.1*l as f64);
-            tank.rot_power *= 1. + 0.08 * (1.1-0.1*l as f64);
+            tank.power *= 1. + 0.08 * (1.6-0.1*l as f64);
+            tank.rot_power *= 1. + 0.08 * (1.6-0.1*l as f64);
         }
     
         for l in 0..tank.evolution.bulletspeed_level.min(10) {
             for x in 0..tank.turrets.len() {
-                tank.turrets[x].projectile_impulse *= 1. + 0.07 * (1.1-0.1*l as f64);
+                tank.turrets[x].projectile_impulse *= 1. + 0.07 * (1.6-0.1*l as f64);
             }
         }
     }
@@ -453,12 +729,11 @@ pub struct Tank {
     /// id of the source of the last bullet that hit this tank. Useful for assiging the kill to a tank, even if the final damage was for example a collision with a shape.
     last_hit_id: u128,
     /// contains all the upgrading and evolution related variables and functions
-    evolution: Evolution,
-    camera_zoom: f64
+    evolution: Evolution
 }
 impl Tank {
     fn render(&self, canvas: &mut Canvas<Window>, camera: &Camera, textures: &HashMap<String, Texture>) {
-        let rendersize = (self.physics.collision_size*4.*camera.zoom) as u32;
+        let rendersize = (self.physics.collision_size*4.*camera.zoom*((camera.viewport_size.0.pow(2)+camera.viewport_size.1.pow(2)) as f64).sqrt()/1024.) as u32;
         let texture = textures.get(&self.texture).unwrap();
         let tank_screen_pos = camera.to_screen_coords((self.physics.x, self.physics.y));
 
@@ -474,10 +749,12 @@ impl Tank {
         
         // render health bar
         if self.physics.hp < self.physics.max_hp {
-            canvas.set_draw_color(Color::RGB(63,63,63));
-            canvas.draw_line((tank_screen_pos.0 - (50. * camera.zoom) as i32, tank_screen_pos.1 - (60. * camera.zoom) as i32), (tank_screen_pos.0 + (50. * camera.zoom) as i32, tank_screen_pos.1 - (60. * camera.zoom) as i32)).unwrap();
+            canvas.set_draw_color(Color::RGB(63,15,31));
+            canvas.draw_line((tank_screen_pos.0 - (50 * rendersize / 266) as i32, tank_screen_pos.1 - (60 * rendersize / 266) as i32), (tank_screen_pos.0 + (50 * rendersize / 266) as i32, tank_screen_pos.1 - (60 * rendersize / 266) as i32)).unwrap();
+            canvas.draw_line((tank_screen_pos.0 - (50 * rendersize / 266) as i32, tank_screen_pos.1-1 - (60 * rendersize / 266) as i32), (tank_screen_pos.0 + (50 * rendersize / 266) as i32, tank_screen_pos.1-1 - (60 * rendersize / 266) as i32)).unwrap();
             canvas.set_draw_color(Color::RGB(0,255,0));
-            canvas.draw_line((tank_screen_pos.0 - (50. * camera.zoom) as i32, tank_screen_pos.1 - (60. * camera.zoom) as i32), (tank_screen_pos.0 - (50. * camera.zoom) as i32  + (self.physics.hp/self.physics.max_hp*100.*camera.zoom) as i32, tank_screen_pos.1 - (60. * camera.zoom) as i32)).unwrap();
+            canvas.draw_line((tank_screen_pos.0 - (50 * rendersize / 266) as i32, tank_screen_pos.1 - (60 * rendersize / 266) as i32), (tank_screen_pos.0 - (50 * rendersize / 266) as i32  + (self.physics.hp/self.physics.max_hp*100. * rendersize as f64 / 266.) as i32, tank_screen_pos.1 - (60 * rendersize / 266) as i32)).unwrap();
+            canvas.draw_line((tank_screen_pos.0 - (50 * rendersize / 266) as i32, tank_screen_pos.1-1 - (60 * rendersize / 266) as i32), (tank_screen_pos.0 - (50 * rendersize / 266) as i32  + (self.physics.hp/self.physics.max_hp*100. * rendersize as f64 / 266.) as i32, tank_screen_pos.1-1 - (60 * rendersize / 266) as i32)).unwrap();
         }
     }
 
@@ -536,15 +813,17 @@ struct Camera {
 impl Camera {
     /// Converts from screen to map coordinates
     fn to_map_coords(&self, coords: (i32, i32)) -> (f64, f64) {
-        let x = (coords.0 as f64) / self.zoom + self.x - (self.viewport_size.0 as f64 / 2. / self.zoom);
-        let y = (coords.1 as f64) / self.zoom + self.y - (self.viewport_size.1 as f64 / 2. / self.zoom);
+        let zoom = self.zoom * ((self.viewport_size.0.pow(2) + self.viewport_size.1.pow(2)) as f64).sqrt() / 1024.;
+        let x = (coords.0 as f64) / zoom + self.x - (self.viewport_size.0 as f64 / 2. / zoom);
+        let y = (coords.1 as f64) / zoom + self.y - (self.viewport_size.1 as f64 / 2. / zoom);
         (x, y)
     }
 
     /// Converts from map to screen coordinates
     fn to_screen_coords(&self, coords: (f64, f64)) -> (i32, i32) {
-        let x = ((coords.0 - self.x + (self.viewport_size.0 as f64 / 2. / self.zoom) as f64) * self.zoom) as i32;
-        let y = ((coords.1 - self.y + (self.viewport_size.1 as f64 / 2. / self.zoom) as f64) * self.zoom) as i32;
+        let zoom = self.zoom * ((self.viewport_size.0.pow(2) + self.viewport_size.1.pow(2)) as f64).sqrt() / 1024.;
+        let x = ((coords.0 - self.x + (self.viewport_size.0 as f64 / 2. / zoom) as f64) * zoom) as i32;
+        let y = ((coords.1 - self.y + (self.viewport_size.1 as f64 / 2. / zoom) as f64) * zoom) as i32;
         (x, y)
     }
 
@@ -555,15 +834,15 @@ impl Camera {
 }
 
 /// A bullet or a drone(controlled bullet)
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Bullet {
     physics: Physics,
     source_tank_id: u128,
-    texture: String
+    texture: String,
 }
 impl Bullet {
     fn render(&self, canvas: &mut Canvas<Window>, camera: &Camera, textures: &HashMap<String, Texture>) {
-        let rendersize = (self.physics.collision_size*4.*camera.zoom) as u32;
+        let rendersize = (self.physics.collision_size*4.*camera.zoom*((camera.viewport_size.0.pow(2)+camera.viewport_size.1.pow(2)) as f64).sqrt()/1024.) as u32;
         let texture = textures.get(&self.texture).unwrap();
         canvas.copy_ex(
             &texture, None,
@@ -594,7 +873,7 @@ struct Button {
 /// For mouse, it tracks this frame position delta and current position.
 /// 
 /// By pressing E (stands for Evolve, Evolution) you display evolution information. You can still fire using the mouse, and move with wsad.
-/// Pressing E again will hide the information. The info is only visual, and it has info like: [HP: lvl 3, 130 hp, press '1' to upgrade]. You can still evolve without the menu if you know the keys.
+/// Releasing E will hide the information. The info is only visual, and it has info like: [HP: lvl 3, 130 hp, press '1' to upgrade]. You can still evolve without the menu if you know the keys.
 /// 
 /// Upgrading levels can be done by pressing the number keys (on the number row, not numpad). Promoting classes is done by Left Shift + number key. 
 /// 
@@ -619,6 +898,10 @@ struct Input {
     u0: Button,
 
     shift: Button,
+    evolve: Button,
+
+    zoom_in: Button,
+    zoom_out: Button,
 
     mouse_pos: (i32,i32),
     mouse_delta: (i32,i32)
@@ -644,7 +927,11 @@ impl Input {
             u9: Button { keycode: Some(Keycode::Num9), mousebutton: None, is_down: false, just: false },
             u0: Button { keycode: Some(Keycode::Num0), mousebutton: None, is_down: false, just: false },
 
+            zoom_in: Button { keycode: Some(Keycode::X), mousebutton: None, is_down: false, just: false },
+            zoom_out: Button { keycode: Some(Keycode::Z), mousebutton: None, is_down: false, just: false },
+
             shift: Button { keycode: Some(Keycode::LShift), mousebutton: None, is_down: false, just: false },
+            evolve: Button { keycode: Some(Keycode::E), mousebutton: None, is_down: false, just: false },
 
             mouse_pos: (0,0),
             mouse_delta: (0,0), 
@@ -653,7 +940,7 @@ impl Input {
 
     /// Finds what this keycode means (up, down, fire, ..) and updates the respective state
     fn register_keydown(&mut self, keycode: Keycode) {
-        for b in [&mut self.up, &mut self.down, &mut self.left, &mut self.right, &mut self.fire, &mut self.u0, &mut self.u1, &mut self.u2, &mut self.u3, &mut self.u4, &mut self.u5, &mut self.u6, &mut self.u7, &mut self.u8, &mut self.u9, &mut self.shift].iter_mut() {
+        for b in [&mut self.up, &mut self.down, &mut self.left, &mut self.right, &mut self.fire, &mut self.u0, &mut self.u1, &mut self.u2, &mut self.u3, &mut self.u4, &mut self.u5, &mut self.u6, &mut self.u7, &mut self.u8, &mut self.u9, &mut self.shift, &mut self.evolve, &mut self.zoom_in, &mut self.zoom_out].iter_mut() {
             if b.keycode.is_some() {
                 if b.keycode.unwrap() == keycode {
                     b.is_down = true;
@@ -665,7 +952,7 @@ impl Input {
 
     /// Finds what this keycode means (up, down, fire, ..) and updates the respective state
     fn register_keyup(&mut self, keycode: Keycode) {
-        for b in [&mut self.up, &mut self.down, &mut self.left, &mut self.right, &mut self.fire, &mut self.u0, &mut self.u1, &mut self.u2, &mut self.u3, &mut self.u4, &mut self.u5, &mut self.u6, &mut self.u7, &mut self.u8, &mut self.u9, &mut self.shift].iter_mut() {
+        for b in [&mut self.up, &mut self.down, &mut self.left, &mut self.right, &mut self.fire, &mut self.u0, &mut self.u1, &mut self.u2, &mut self.u3, &mut self.u4, &mut self.u5, &mut self.u6, &mut self.u7, &mut self.u8, &mut self.u9, &mut self.shift, &mut self.evolve, &mut self.zoom_in, &mut self.zoom_out].iter_mut() {
             if b.keycode.is_some() {
                 if b.keycode.unwrap() == keycode {
                     b.is_down = false;
@@ -677,7 +964,7 @@ impl Input {
 
     /// Finds what this mouse button means (up, down, fire, ..) and updates the respective state
     fn register_mouse_button_down(&mut self, mousebutton: MouseButton) {
-        for b in [&mut self.up, &mut self.down, &mut self.left, &mut self.right, &mut self.fire, &mut self.u0, &mut self.u1, &mut self.u2, &mut self.u3, &mut self.u4, &mut self.u5, &mut self.u6, &mut self.u7, &mut self.u8, &mut self.u9, &mut self.shift].iter_mut() {
+        for b in [&mut self.up, &mut self.down, &mut self.left, &mut self.right, &mut self.fire, &mut self.u0, &mut self.u1, &mut self.u2, &mut self.u3, &mut self.u4, &mut self.u5, &mut self.u6, &mut self.u7, &mut self.u8, &mut self.u9, &mut self.shift, &mut self.evolve, &mut self.zoom_in, &mut self.zoom_out].iter_mut() {
             if b.mousebutton.is_some() {
                 if b.mousebutton.unwrap() == mousebutton {
                     b.is_down = true;
@@ -689,7 +976,7 @@ impl Input {
 
     /// Finds what this mouse button means (up, down, fire, ..) and updates the respective state
     fn register_mouse_button_up(&mut self, mousebutton: MouseButton) {
-        for b in [&mut self.up, &mut self.down, &mut self.left, &mut self.right, &mut self.fire, &mut self.u0, &mut self.u1, &mut self.u2, &mut self.u3, &mut self.u4, &mut self.u5, &mut self.u6, &mut self.u7, &mut self.u8, &mut self.u9, &mut self.shift].iter_mut() {
+        for b in [&mut self.up, &mut self.down, &mut self.left, &mut self.right, &mut self.fire, &mut self.u0, &mut self.u1, &mut self.u2, &mut self.u3, &mut self.u4, &mut self.u5, &mut self.u6, &mut self.u7, &mut self.u8, &mut self.u9, &mut self.shift, &mut self.evolve, &mut self.zoom_in, &mut self.zoom_out].iter_mut() {
             if b.mousebutton.is_some() {
                 if b.mousebutton.unwrap() == mousebutton {
                     b.is_down = false;
@@ -701,7 +988,7 @@ impl Input {
 
     /// Call this once every loop, before taking input. Now it only changes just to false for all keys
     fn refresh(&mut self) {
-        for b in [&mut self.up, &mut self.down, &mut self.left, &mut self.right, &mut self.fire, &mut self.u0, &mut self.u1, &mut self.u2, &mut self.u3, &mut self.u4, &mut self.u5, &mut self.u6, &mut self.u7, &mut self.u8, &mut self.u9, &mut self.shift].iter_mut() {
+        for b in [&mut self.up, &mut self.down, &mut self.left, &mut self.right, &mut self.fire, &mut self.u0, &mut self.u1, &mut self.u2, &mut self.u3, &mut self.u4, &mut self.u5, &mut self.u6, &mut self.u7, &mut self.u8, &mut self.u9, &mut self.shift, &mut self.evolve, &mut self.zoom_in, &mut self.zoom_out].iter_mut() {
             b.just = false;
         }
     }
@@ -727,6 +1014,7 @@ struct TankAI {
     fighting: bool,
     /// set to `true` to make the tank dodge obstacles. Usually its good to turn on, besides tanks like smasher that do a lot of damage by colliding
     dodge_obstacles: bool,
+    next_upgrade_is_promotion: bool,
     /// hashmap of tankid, target (only another). When attacking, it will keep the target unless it gets very far or dies. When retreating, it is usually the closest/biggest threat
     tg_id: u128,
 }
@@ -736,13 +1024,87 @@ impl TankAI {
     /// Needs to access the whole `Map` mutably to modify the tanks it controls.
     /// 
     fn control(&mut self, tanks: &mut HashMap<u128, Tank>, shapes: &mut HashMap<u128, Shape>, mut bullets: &mut HashMap<u128, Bullet>, delta: f64) -> bool {
-
         
         let id = self.id;
 
         if tanks.contains_key(&id) {
             let con_tankp = tanks.get(&id).unwrap().physics;
+            let mut con_tank = &mut tanks.get_mut(&id).unwrap();
             let mut movedir = (0.,0.);
+
+            if con_tank.evolution.xp > if self.next_upgrade_is_promotion {1000.} else {100.} {
+                // random bools
+                let mut rb = [false;10];
+                for b in 0..10 {
+                    rb[b] = thread_rng().gen_bool(0.1);
+                }
+                if self.next_upgrade_is_promotion {
+                    let classes = &EVOLUTION_TREE.get(&con_tank.evolution.class).expect("this class does not exist in the evolution tree").1;
+                    for x in 0..classes.len() {
+                        let key = match x {
+                            0 => rb[1],
+                            1 => rb[2],
+                            2 => rb[3],
+                            3 => rb[4],
+                            4 => rb[5],
+                            5 => rb[6],
+                            6 => rb[7],
+                            7 => rb[8],
+                            8 => rb[9],
+                            _ => {eprintln!("Not enough keys on the number row to be able to evolve to all the tanks. A tank should be able to evolve to at most 9 other tanks"); panic!()}
+                        };
+                        if key {
+                            Evolution::promote(&mut con_tank, classes[x].clone());
+                        }
+                    }
+                // upgrading levels
+                } else {
+                    if rb[1] {
+                        if con_tank.evolution.hp_level < 10 {
+                            con_tank.evolution.hp_level += 1;
+                            con_tank.evolution.xp -= 100.;
+                        }
+                        println!("xp: {:.0}", con_tank.evolution.xp);
+                    }
+                    if rb[2] {
+                        if con_tank.evolution.regen_level < 10 {
+                            con_tank.evolution.regen_level += 1;
+                            con_tank.evolution.xp -= 100.;
+                        }
+                        println!("xp: {:.0}", con_tank.evolution.xp);
+                    }
+                    if rb[3] {
+                        if con_tank.evolution.reload_level < 10 {
+                            con_tank.evolution.reload_level += 1;
+                            con_tank.evolution.xp -= 100.;
+                        }
+                        println!("xp: {:.0}", con_tank.evolution.xp);
+                    }
+                    if rb[4] {
+                        if con_tank.evolution.damage_level < 10 {
+                            con_tank.evolution.damage_level += 1;
+                            con_tank.evolution.xp -= 100.;
+                        }
+                        println!("xp: {:.0}", con_tank.evolution.xp);
+                    }
+                    if rb[5] {
+                        if con_tank.evolution.speed_level < 10 {
+                            con_tank.evolution.speed_level += 1;
+                            con_tank.evolution.xp -= 100.;
+                        }
+                        println!("xp: {:.0}", con_tank.evolution.xp);
+                    }
+                    if rb[6] {
+                        if con_tank.evolution.bulletspeed_level < 10 {
+                            con_tank.evolution.bulletspeed_level += 1;
+                            con_tank.evolution.xp -= 100.;
+                        }
+                        println!("xp: {:.0}", con_tank.evolution.xp);
+                    }
+                    Evolution::level_refresh(&mut con_tank);
+                }
+                self.next_upgrade_is_promotion = thread_rng().gen_bool(0.05);
+            }
 
             // switch between fight and flight. happens at the end of the frame intentianaly
             if (con_tankp.hp / con_tankp.max_hp) > self.fight_threshold {
@@ -752,12 +1114,12 @@ impl TankAI {
             }
 
             // attack the tank that last hit the controlled tank, if it is in range
-            if tanks.contains_key(&tanks.get(&id).unwrap().last_hit_id) && tanks.get(&tanks.get(&id).unwrap().last_hit_id).unwrap().physics.dist(&con_tankp) < self.range {
+            if tanks.contains_key(&tanks.get(&id).unwrap().last_hit_id) && tanks.get(&tanks.get(&id).unwrap().last_hit_id).unwrap().physics.dist(&con_tankp) < self.range && tanks.get(&id).unwrap().last_hit_id != id {
                 self.tg_id = tanks.get(&id).unwrap().last_hit_id;
             }
 
             // if eighter the tank does not have a target, or it is retreating, find new target. It finds new target when retreating to always retreat from the closest tank
-            if !self.fighting || !tanks.contains_key(&self.tg_id) {
+            if (!self.fighting) || (!tanks.contains_key(&self.tg_id)) {
 
                 // search for nearest tank
                 let mut closest_id = 0_u128;
@@ -769,15 +1131,16 @@ impl TankAI {
                     }
                 }
                 // if nearest tank is in range, set target to this tank.
-                if closest_dist < self.range {
+                // TEMP this *gen_bool... below makes tank ignore all enemies unless thay attack first. The chance is 1 to 100 per second that it will attack first
+                if closest_dist < self.range * if thread_rng().gen_bool(delta*0.01) {1.} else {0.} {
                     self.tg_id = closest_id;
                 // else if the last hit tank is in range
                 }
-                // no target was found to attack or retreat from, attack shapes
+                // attack shapes
                 else {
                     // search for nearest shape
                     let mut closest_id = 0_u128;
-                    let mut closest_dist = self.range;
+                    let mut closest_dist = 100000000.;
                     for (oid, shape) in shapes.iter() {
                         if shape.physics.dist(&con_tankp) < closest_dist {
                             closest_dist = shape.physics.dist(&tanks.get(&id).unwrap().physics);
@@ -844,6 +1207,8 @@ impl TankAI {
                 tanks.get_mut(&id).unwrap().rotate_to((tg_pos.0 + tg_vel.0, tg_pos.1 + tg_vel.1), delta);
                 tanks.get_mut(&id).unwrap().fire(&mut bullets, id);
                 
+            } else {
+                self.tg_id = 0;
             }
 
             // avoid obstacles
@@ -859,7 +1224,22 @@ impl TankAI {
                 }
             }
 
-            tanks.get_mut(&id).unwrap().move_in_dir(movedir, delta);  
+            // avoid bullets
+            if self.dodge_obstacles {
+                for (sp, source) in bullets.iter().map(|s| (s.1.physics, s.1.source_tank_id)) {
+                    // if the bullet is close (distance increases when the tank is going fast)
+                    if con_tankp.dist(&sp) < (sp.collision_size + con_tankp.collision_size + sp.speed()*1.) && source != id  {
+                        let bdist = con_tankp.dist(&sp);
+
+                        // move directly away from the bullet, overriding the move direction determined before
+                        let bullet_away_dir = normalize((-(sp.x + sp.xvel - con_tankp.x), -(sp.y + sp.yvel - con_tankp.y)));
+                        movedir = (movedir.0 + bullet_away_dir.0*sp.hp/con_tankp.hp /bdist * 65536., movedir.1 + bullet_away_dir.1*sp.hp/con_tankp.hp /bdist * 65536.);
+
+                    }
+                }
+            }
+
+            tanks.get_mut(&id).unwrap().move_in_dir(movedir, delta);
 
         } else {
             // Tank with id 'id' is not in 'tanks', it appearently died. Remove from list of controlled tanks
@@ -943,12 +1323,12 @@ impl Map {
 
             for o in combined_iter_mut {
                 if o.x.abs() > self.map_size.0 {
-                    o.push(((self.map_size.0*o.x.signum() - o.x)*delta*1000., 0.));
+                    o.push(((self.map_size.0*o.x.signum() - o.x)*delta*2048., 0.));
                     o.xvel *= (-(delta)*100. / o.weight).exp();
                     o.yvel *= (-(delta)*100. / o.weight).exp();
                 }
                 if o.y.abs() > self.map_size.1 {
-                    o.push((0., (self.map_size.1*o.y.signum() - o.y)*delta*1000.));
+                    o.push((0., (self.map_size.1*o.y.signum() - o.y)*delta*2048.));
                     o.xvel *= (-(delta)*100. / o.weight).exp();
                     o.yvel *= (-(delta)*100. / o.weight).exp();
                 }
@@ -965,9 +1345,8 @@ impl Map {
 
             // remove <0 hp objects
             self.tanks.retain(|_, v| v.physics.hp > 0.);
-            self.bullets.retain(|_, v| v.physics.hp > 0.);
 
-            // for shapes, hexagons must be removed differently because they split into squares
+            // for shapes and bullets, hexagons and bombs must be removed differently
 
             // find hexes that died
             let mut hex_to_remove = Vec::new();
@@ -996,8 +1375,55 @@ impl Map {
                 }
             }
 
+
+            // find bullets that died
+            let mut bombs_to_remove = Vec::new();
+            for (id, bullet) in self.bullets.iter() {
+                if bullet.texture == "bomb" && bullet.physics.hp <= 0. {
+                    bombs_to_remove.push(id.clone());
+                }
+            }
+
+            for id in bombs_to_remove {
+                // handle dead bombs here
+                for x in 0..(self.bullets.get(&id).unwrap().physics.collision_size as usize * 8) {
+                    let angle = x as f64*17.532;
+
+                    let bomb = &mut self.bullets.get(&id).unwrap().clone();
+                    let size = bomb.physics.collision_size / 2.;
+                    bomb.physics.collision_size = size;
+                    bomb.physics.weight = size*4.;
+                    bomb.physics.max_hp = size*4.;
+                    bomb.physics.hp = size*4.;
+                    bomb.physics.hp_regen = -size*2.;
+                    bomb.physics.xvel += angle.to_radians().sin() * size * 64. * (1. + thread_rng().gen::<f64>());
+                    bomb.physics.yvel += angle.to_radians().cos() * size * 64. * (1. + thread_rng().gen::<f64>());
+                    bomb.physics.x += angle.to_radians().sin() * size * 16. * thread_rng().gen::<f64>();
+                    bomb.physics.y += angle.to_radians().cos() * size * 16. * thread_rng().gen::<f64>();
+                    self.bullets.insert(thread_rng().gen(), Bullet {
+                        physics: bomb.physics,
+                        texture: "bullet".to_owned(),
+                        source_tank_id: bomb.source_tank_id,
+                    });
+                }
+                let bomb = &mut self.bullets.get(&id).unwrap().clone();
+                let combined_iter_mut = self.tanks.iter_mut().map(|tank| &mut tank.1.physics)
+                .chain(self.shapes.iter_mut().map(|shape| &mut shape.1.physics))
+                .chain(self.bullets.iter_mut().map(|bullet| &mut bullet.1.physics));
+                for o in combined_iter_mut {
+                    if o.dist(&bomb.physics) < bomb.physics.collision_size*16. {
+                        let s = (o.dist(&bomb.physics) - bomb.physics.collision_size*16.)*64.;
+                        let dir = normalize(vector_diff((o.x, o.y), (bomb.physics.x, bomb.physics.y)));
+                        o.push((s*dir.0, s*dir.1));
+                    }
+                }
+            }
+
+
             // remove all dead shapes now
             self.shapes.retain(|_, v| v.physics.hp > 0.);
+            // remove all dead bullets now
+            self.bullets.retain(|_, v| v.physics.hp > 0.);
         }
         // things that happen for pairs, only one is mutable (collisions)
         {
@@ -1086,10 +1512,6 @@ impl Map {
                     active.remove(&k);
                 }
             }
-
-
-
-            
         }
 
         for tank in self.tanks.values_mut() {
@@ -1152,18 +1574,26 @@ impl Map {
 }
 
 fn main() {
+    run();
+}
+
+fn run() {
     // INIT
 
     // Initialize sld2 related things
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
     let window = video_subsystem
-        .window("SDL2 Window", 1024, 1024)
+        .window("SDL2 Window", 2560, 1440)
+        // .fullscreen()
         .position_centered()
         .build()
         .unwrap();
     let mut canvas = window.into_canvas().build().unwrap();
     let mut event_pump = sdl_context.event_pump().unwrap();
+
+    let ttf_context = sdl2::ttf::init().map_err(|e| e.to_string()).unwrap();
+    let font = ttf_context.load_font("textures/poopins.ttf", 36).unwrap();
 
     // Initialize other libraries. So far only the rand crate
     let mut rng = rand::thread_rng();
@@ -1173,17 +1603,21 @@ fn main() {
     // HashMap of all the textures used in the game. Later will read all textures form the textures folder and add them to the hashmap by the filename without the extension
     let mut textures: HashMap<String, Texture> = HashMap::new();
     textures.insert("bullet".to_owned(), texture_creator.load_texture("textures/bullet.png").unwrap());
+    textures.insert("bomb".to_owned(), texture_creator.load_texture("textures/bomb.png").unwrap());
+
     textures.insert("square".to_owned(), texture_creator.load_texture("textures/square.png").unwrap());
     textures.insert("hexagon".to_owned(), texture_creator.load_texture("textures/hexagon.png").unwrap());
     textures.insert("triangle".to_owned(), texture_creator.load_texture("textures/triangle.png").unwrap());
 
     textures.insert("basic".to_owned(), texture_creator.load_texture("textures/basic.png").unwrap());
     textures.insert("long".to_owned(), texture_creator.load_texture("textures/long.png").unwrap());
+    textures.insert("double".to_owned(), texture_creator.load_texture("textures/double.png").unwrap());
+    textures.insert("wide".to_owned(), texture_creator.load_texture("textures/wide.png").unwrap());
 
     // Initialize my own things
     let mut map = Map {
-        map_size: (2_000., 2_000.,),
-        shapes_max: 500,
+        map_size: (5_000., 5_000.,),
+        shapes_max: 5000,
         shapes: HashMap::new(),
         tanks: HashMap::new(),
         bullets: HashMap::new(),
@@ -1196,26 +1630,66 @@ fn main() {
         y: 0.,
         zoom: 1.,
         target_tank: playerid,
-        viewport_size: (1024, 1024)
+        viewport_size: (2560, 1440)
     };
 
     // update the physics a little bit before anything else happens
-    for x in 0..5000 {
+    for x in 0..1000 {
         map.update_physics(0.1);
         if x%500 == 0 {
             println!("loading: {}%", x/50);
         }
     }
 
-    // add player
-    map.tanks.insert(
-        playerid,
-        EVOLUTION_TREE.get(&"basic".to_string()).unwrap().0.clone()
-    );
-
     let mut last_frame_start;
     // How long the last frame took, in micros, 1 millisecond for the first frame
     let mut delta = 0.01;
+
+
+    while map.tanks.len() < 10 {
+        let ai_tank_id = thread_rng().gen::<u128>();
+
+        // add AI tank
+        // tanks will be network or AI controlled on the server (also player controlled on LAN multiplayer server), and player or AI controlled in singleplayer
+        // let class = ["superwide", "wide", "long", "double", "basic", "bomber", "fatbomber", "machine"][thread_rng().gen_range(0..7_usize)];
+        let class = "basic";
+        map.tanks.insert(
+            ai_tank_id,
+            EVOLUTION_TREE.get(&class.to_owned()).unwrap().0.clone()
+        );
+        let ph = &mut map.tanks.get_mut(&ai_tank_id).unwrap().physics;
+        ph.x = thread_rng().gen::<f64>()*map.map_size.0*2. - map.map_size.0;
+        ph.y = thread_rng().gen::<f64>()*map.map_size.1*2. - map.map_size.1;
+        // will be clamped to max hp automatically
+        ph.hp = 10000.;
+
+        let ev = &mut map.tanks.get_mut(&ai_tank_id).unwrap().evolution;
+        ev.hp_level = thread_rng().gen_range(0..1);
+        ev.regen_level = thread_rng().gen_range(0..1);
+        ev.reload_level = thread_rng().gen_range(0..1);
+        ev.damage_level = thread_rng().gen_range(0..1);
+        ev.speed_level = thread_rng().gen_range(0..1);
+        ev.bulletspeed_level = thread_rng().gen_range(0..1);
+        ev.class = class.to_owned();
+
+        let tank =&mut map.tanks.get_mut(&ai_tank_id).unwrap();
+        println!("{}", tank.evolution.class);
+        Evolution::level_refresh(tank);            
+
+        map.tankais.push(TankAI {
+            id: ai_tank_id,
+            range: 2048.,
+            tg_range: (tank.turrets[0].projectile_impulse/tank.turrets[0].projectile_weight).sqrt()  *  (tank.turrets[0].projectile_hp/-tank.turrets[0].projectile_hp_regen).sqrt()  *  8.,
+            bullet_speed: tank.turrets[0].projectile_impulse/tank.turrets[0].projectile_weight,
+            fight_threshold: 0.5,
+            flight_threshold: 0.2,
+            dodge_obstacles: true,
+            fighting: true,
+            tg_id: 0,
+            next_upgrade_is_promotion: false
+        });
+    }
+
 
     'running: loop {
         last_frame_start = Instant::now();
@@ -1265,30 +1739,32 @@ fn main() {
 
         // SPAWN TANKS
 
-        while map.tanks.len() < 10 {
-            let ai_tank_id = thread_rng().gen::<u128>();
-            map.tankais.push(TankAI {
-                id: ai_tank_id,
-                range: 1000.,
-                tg_range: 200.,
-                bullet_speed: 1000.,
-                fight_threshold: 0.95,
-                flight_threshold: 0.4,
-                dodge_obstacles: true,
-                fighting: true,
-                tg_id: 0,
-            });
-    
-            // add another tank, AI controlled
-            // tanks will be network or AI controlled on the server (also player controlled on LAN multiplayer server), and player or AI controlled in singleplayer
+        if !map.tanks.contains_key(&playerid) {
+            // add player
             map.tanks.insert(
-                ai_tank_id,
+                playerid,
                 EVOLUTION_TREE.get(&"basic".to_string()).unwrap().0.clone()
             );
-            let ph = &mut map.tanks.get_mut(&ai_tank_id).unwrap().physics;
+
+            let ph = &mut map.tanks.get_mut(&playerid).unwrap().physics;
             ph.x = thread_rng().gen::<f64>()*map.map_size.0*2. - map.map_size.0;
             ph.y = thread_rng().gen::<f64>()*map.map_size.1*2. - map.map_size.1;
+            // will be clamped to max hp automatically
+            // ph.hp = 10000.;
+
+            // let ev = &mut map.tanks.get_mut(&playerid).unwrap().evolution;
+            // ev.hp_level = thread_rng().gen_range(10..11);
+            // ev.regen_level = thread_rng().gen_range(10..11);
+            // ev.reload_level = thread_rng().gen_range(10..11);
+            // ev.damage_level = thread_rng().gen_range(10..11);
+            // ev.speed_level = thread_rng().gen_range(10..11);
+            // ev.bulletspeed_level = thread_rng().gen_range(10..11);
+
+            Evolution::level_refresh(map.tanks.get_mut(&playerid).unwrap()); 
+
         }
+
+        
 
         // PLAYER CONTROL
 
@@ -1360,7 +1836,7 @@ fn main() {
             // upgrading levels
             } else {
                 if input.u1.just && input.u1.is_down {
-                    if player.evolution.xp > 100. {
+                    if player.evolution.xp > 100. && player.evolution.hp_level < 10 {
                         player.evolution.hp_level += 1;
                         player.evolution.xp -= 100.;
                         Evolution::level_refresh(player);
@@ -1369,7 +1845,7 @@ fn main() {
                     println!("xp: {:.0}", player.evolution.xp);
                 }
                 if input.u2.just && input.u2.is_down {
-                    if player.evolution.xp > 100. {
+                    if player.evolution.xp > 100. && player.evolution.regen_level < 10 {
                         player.evolution.regen_level += 1;
                         player.evolution.xp -= 100.;
                         Evolution::level_refresh(player);
@@ -1378,7 +1854,7 @@ fn main() {
                     println!("xp: {:.0}", player.evolution.xp);
                 }
                 if input.u3.just && input.u3.is_down {
-                    if player.evolution.xp > 100. {
+                    if player.evolution.xp > 100. && player.evolution.reload_level < 10 {
                         player.evolution.reload_level += 1;
                         player.evolution.xp -= 100.;
                         Evolution::level_refresh(player);
@@ -1387,7 +1863,7 @@ fn main() {
                     println!("xp: {:.0}", player.evolution.xp);
                 }
                 if input.u4.just && input.u4.is_down {
-                    if player.evolution.xp > 100. {
+                    if player.evolution.xp > 100. && player.evolution.damage_level < 10 {
                         player.evolution.damage_level += 1;
                         player.evolution.xp -= 100.;
                         Evolution::level_refresh(player);
@@ -1396,7 +1872,7 @@ fn main() {
                     println!("xp: {:.0}", player.evolution.xp);
                 }
                 if input.u5.just && input.u5.is_down {
-                    if player.evolution.xp > 100. {
+                    if player.evolution.xp > 100. && player.evolution.speed_level < 10 {
                         player.evolution.speed_level += 1;
                         player.evolution.xp -= 100.;
                         Evolution::level_refresh(player);
@@ -1405,7 +1881,7 @@ fn main() {
                     println!("xp: {:.0}", player.evolution.xp);
                 }
                 if input.u6.just && input.u6.is_down {
-                    if player.evolution.xp > 100. {
+                    if player.evolution.xp > 100. && player.evolution.bulletspeed_level < 10 {
                         player.evolution.bulletspeed_level += 1;
                         player.evolution.xp -= 100.;
                         Evolution::level_refresh(player);
@@ -1432,8 +1908,12 @@ fn main() {
         // track tg tank if it exists, otherwise don't move
         if map.tanks.contains_key(&camera.target_tank) {
             camera.track(delta, &map.tanks.get(&camera.target_tank).unwrap().physics);
-            camera.zoom = map.tanks.get(&camera.target_tank).unwrap().camera_zoom;
-            // camera.zoom = 0.25;
+            if input.zoom_out.is_down && input.zoom_out.just {
+                camera.zoom *= 0.96;
+            }
+            if input.zoom_in.is_down && input.zoom_in.just {
+                camera.zoom *= 1.04;
+            }
         }
 
 
@@ -1462,6 +1942,51 @@ fn main() {
         for tank in &map.tanks {
             tank.1.render(&mut canvas, &mut camera, &textures);
         }
+
+
+        // render text info, later will be better
+        if map.tanks.contains_key(&playerid) && input.evolve.is_down {
+            let xp = map.tanks.get(&playerid).unwrap().evolution.xp;
+            let class = map.tanks.get(&playerid).unwrap().evolution.class.to_uppercase();
+            let hp_level = map.tanks.get(&playerid).unwrap().evolution.hp_level;
+            let regen_level = map.tanks.get(&playerid).unwrap().evolution.regen_level;
+            let reload_level = map.tanks.get(&playerid).unwrap().evolution.reload_level;
+            let damage_level = map.tanks.get(&playerid).unwrap().evolution.damage_level;
+            let speed_level = map.tanks.get(&playerid).unwrap().evolution.speed_level;
+            let bulletspeed_level = map.tanks.get(&playerid).unwrap().evolution.bulletspeed_level;
+            let players = map.tanks.len();
+
+            let text = format!(
+                "XP: {:.0}\nClass: {}\n\nLevels:\nMAX HP: {}\nHP REGENERATION: {}\nRELOAD SPEED: {}\nBULLET DAMAGE: {}\nMOVEMENT SPEED: {}\nBULLET SPEED: {}, players: {}",
+                xp, class, hp_level, regen_level, reload_level, damage_level, speed_level, bulletspeed_level, players
+            );
+
+            let mut y_offset = 40; // Adjust the Y offset for each line
+
+            for line in text.lines() {
+                // Skip rendering empty or whitespace-only lines
+                if line.trim().is_empty() {
+                    continue;
+                }
+
+                let surface = font
+                    .render(line)
+                    .blended(Color::RGB(255, 255, 255))
+                    .map_err(|e| e.to_string())
+                    .unwrap();
+                let texture_creator: TextureCreator<_> = canvas.texture_creator();
+                let texture = texture_creator
+                    .create_texture_from_surface(&surface)
+                    .map_err(|e| e.to_string())
+                    .unwrap();
+                let texture_query = texture.query();
+                let dest_rect = Rect::new(40, y_offset, texture_query.width, texture_query.height);
+                canvas.copy(&texture, None, dest_rect).unwrap();
+
+                y_offset += texture_query.height as i32; // Increase Y offset for the next line
+            }
+        }
+
 
         canvas.present();
 

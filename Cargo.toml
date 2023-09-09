@@ -8,9 +8,10 @@ edition = "2021"
 [dependencies]
 rand = "*"
 rand_distr = "*"
-lazy_static = "1.4"
+lazy_static = "*"
 
 [dependencies.sdl2]
 version = "*"
 default-features = false
-features = ["image"]
+features = ["image", "ttf"]
+
