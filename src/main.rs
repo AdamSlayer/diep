@@ -552,34 +552,36 @@ impl Physics {
     }
 }
 
-/// Square, triangle, pentagon
+/// Square, triangle, pentagon, 12gon
 struct Shape {
     physics: Physics,
     /// Also affects behavour
-    texture: String
+    texture: String,
+    /// Is true if the shape has not reached max hp in its lifetime yet. Will give no xp and will have increased hp regen (will be visually visible in some future update)
+    just_spawned_mode: bool
 }
 impl Shape {
     fn render(&self, canvas: &mut Canvas<Window>, camera: &Camera, textures: &HashMap<String, Texture>) {
-        let rendersize = (self.physics.collision_size*4.*camera.zoom*((camera.viewport_size.0.pow(2)+camera.viewport_size.1.pow(2)) as f64).sqrt()/1024.) as u32;
-        let texture = textures.get(&self.texture).unwrap();
+        let rendersize = self.physics.collision_size*4.*camera.zoom*((camera.viewport_size.0.pow(2)+camera.viewport_size.1.pow(2)) as f64).sqrt()/1024.;
+        let texture = &textures.get(&self.texture).unwrap();
         let shape_screen_pos = camera.to_screen_coords((self.physics.x, self.physics.y));
 
         canvas.copy_ex(
             &texture, None,
             Rect::from_center(
                 Point::from(shape_screen_pos), // set center position
-                rendersize, rendersize,  // set render width and height
+                rendersize as u32, rendersize as u32,  // set render width and height
             ),
             self.physics.rot, // set rotation
             Point::from((rendersize as i32 / 2, rendersize as i32 / 2)), // set center of rotation, in screen coordinates (not texture coordinates)
             false, false).unwrap();
         
-        // render health bar
-        if self.physics.hp < self.physics.max_hp {
+        // render health bar, if not in just spawned mode
+        if self.physics.hp < self.physics.max_hp && !self.just_spawned_mode {
             canvas.set_draw_color(Color::RGB(63,15,31));
-            canvas.draw_line((shape_screen_pos.0 - (50 * rendersize / 266) as i32, shape_screen_pos.1 - (60 * rendersize / 266) as i32), (shape_screen_pos.0 + (50 * rendersize / 266) as i32, shape_screen_pos.1 - (60 * rendersize / 266) as i32)).unwrap();
+            canvas.draw_line((shape_screen_pos.0 - (50. * rendersize / 266.) as i32, shape_screen_pos.1 - (60. * rendersize / 266.) as i32), (shape_screen_pos.0 + (50. * rendersize / 266.) as i32, shape_screen_pos.1 - (60. * rendersize / 266.) as i32)).unwrap();
             canvas.set_draw_color(Color::RGB(0,255,0));
-            canvas.draw_line((shape_screen_pos.0 - (50 * rendersize / 266) as i32, shape_screen_pos.1 - (60 * rendersize / 266) as i32), (shape_screen_pos.0 - (50 * rendersize / 266) as i32  + (self.physics.hp/self.physics.max_hp*100. * rendersize as f64 / 266.) as i32, shape_screen_pos.1 - (60 * rendersize / 266) as i32)).unwrap();
+            canvas.draw_line((shape_screen_pos.0 - (50. * rendersize / 266.) as i32, shape_screen_pos.1 - (60. * rendersize / 266.) as i32), (shape_screen_pos.0 - (50. * rendersize / 266.) as i32  + (self.physics.hp/self.physics.max_hp*100. * rendersize / 266.) as i32, shape_screen_pos.1 - (60. * rendersize / 266.) as i32)).unwrap();
         }
     }
 }
@@ -697,11 +699,13 @@ struct Evolution {
     damage_level: u8,
     speed_level: u8,
     bulletspeed_level: u8,
+    /// how much xp is added to someone who kills this
+    killvalue: f64,
 }
 impl Evolution {
     fn new() -> Self {
         Evolution {
-            xp: 100000.,
+            xp: 0.,
             class: "basic".to_string(),
             hp_level: 0,
             regen_level: 0,
@@ -709,7 +713,14 @@ impl Evolution {
             damage_level: 0,
             speed_level: 0,
             bulletspeed_level: 0,
+            killvalue: 0.
         }
+    }
+
+    fn add_xp(&mut self, xp: f64) {
+        self.xp += xp;
+        // you get half the xp the tank earned within its lifetime for killing it
+        self.killvalue += xp * 0.5;
     }
     /// Promotes a tank to a class. Does not check whether the tank can promote to this class.
     /// 
@@ -1118,6 +1129,14 @@ impl TankAI {
             let mut con_tank = &mut tanks.get_mut(&id).unwrap();
             let mut movedir = (0.,0.);
 
+            self.tg_range = if con_tank.evolution.class == "shotgun" {
+                128.
+            } else {
+                (con_tank.turrets[0].projectile_impulse/con_tank.turrets[0].projectile_weight).sqrt()  *  (con_tank.turrets[0].projectile_hp/-con_tank.turrets[0].projectile_hp_regen).sqrt()  *  8.
+            };
+            self.bullet_speed = con_tank.turrets[0].projectile_impulse/con_tank.turrets[0].projectile_weight;
+            
+
             if con_tank.evolution.xp > if self.next_upgrade_is_promotion {1000.} else {100.} {
                 // random bools
                 let mut rb = [false;10];
@@ -1150,42 +1169,36 @@ impl TankAI {
                             con_tank.evolution.hp_level += 1;
                             con_tank.evolution.xp -= 100.;
                         }
-                        println!("xp: {:.0}", con_tank.evolution.xp);
                     }
                     if rb[2] {
                         if con_tank.evolution.regen_level < 10 {
                             con_tank.evolution.regen_level += 1;
                             con_tank.evolution.xp -= 100.;
                         }
-                        println!("xp: {:.0}", con_tank.evolution.xp);
                     }
                     if rb[3] {
                         if con_tank.evolution.reload_level < 10 {
                             con_tank.evolution.reload_level += 1;
                             con_tank.evolution.xp -= 100.;
                         }
-                        println!("xp: {:.0}", con_tank.evolution.xp);
                     }
                     if rb[4] {
                         if con_tank.evolution.damage_level < 10 {
                             con_tank.evolution.damage_level += 1;
                             con_tank.evolution.xp -= 100.;
                         }
-                        println!("xp: {:.0}", con_tank.evolution.xp);
                     }
                     if rb[5] {
                         if con_tank.evolution.speed_level < 10 {
                             con_tank.evolution.speed_level += 1;
                             con_tank.evolution.xp -= 100.;
                         }
-                        println!("xp: {:.0}", con_tank.evolution.xp);
                     }
                     if rb[6] {
                         if con_tank.evolution.bulletspeed_level < 10 {
                             con_tank.evolution.bulletspeed_level += 1;
                             con_tank.evolution.xp -= 100.;
                         }
-                        println!("xp: {:.0}", con_tank.evolution.xp);
                     }
                     Evolution::level_refresh(&mut con_tank);
                 }
@@ -1228,7 +1241,7 @@ impl TankAI {
                     let mut closest_id = 0_u128;
                     let mut closest_dist = 100000000.;
                     for (oid, shape) in shapes.iter() {
-                        if shape.physics.dist(&con_tankp) < closest_dist {
+                        if shape.physics.dist(&con_tankp) < closest_dist && shape.texture != "12gon" && !shape.just_spawned_mode {
                             closest_dist = shape.physics.dist(&tanks.get(&id).unwrap().physics);
                             closest_id = *oid;
                         }
@@ -1401,10 +1414,15 @@ impl Map {
     /// Randomly spawns shapes
     /// 
     fn update_physics(&mut self, delta: f64) {
+
+        self.tanks.retain(|_, v| v.physics.speed() <= 50_000.);
+        self.bullets.retain(|_, v| v.physics.speed() <= 50_000.);
+        self.shapes.retain(|_, v| v.physics.speed() <= 50_000.);
+
         // spawn shapes
-        while self.shapes.len() < self.shapes_max {
-            // from 0.6 to 1.4, squared 0.36 to 1.96
-            let mut size = thread_rng().gen::<f64>() * 0.8 + 0.6;
+        for _ in 0..(if thread_rng().gen_bool((delta * 4.).clamp(0., 1.)) {1} else {0} * (self.shapes_max - self.shapes.len()) / 256) {
+            // from 0.8 to 1.2, squared 0.64 to 1.44
+            let mut size = thread_rng().gen::<f64>() * 0.4 + 0.8;
             let mut is_hexagon = thread_rng().gen_bool(0.1);
             let is_triangle = thread_rng().gen_bool(0.4);
             let mut is_12gon = false;
@@ -1431,11 +1449,11 @@ impl Map {
                     y: thread_rng().gen_range(-self.map_size.1..self.map_size.1),
                     xvel: 0.,
                     yvel: 0.,
-                    weight: if is_12gon {512. * size.powi(2)} else {128. * size.powi(2)},
+                    weight: 1.,
                     rot: thread_rng().gen::<f64>()*360.,
                     rotvel: 0.,
                     collision_size: 20. * size,
-                    hp: if is_12gon {size.powi(2) * 300.} else {10.},
+                    hp: 4.,
                     max_hp: if is_hexagon {
                         if is_12gon {
                             300. * size.powi(2)
@@ -1447,11 +1465,13 @@ impl Map {
                     } else {
                         10. * size.powi(2)
                     },
-                    hp_regen: if is_hexagon {
+                    // hp regen is multiplied by 64, because it is later divided by 64 when shape reaches full hp.
+                    hp_regen: 16. *
+                    if is_hexagon {
                         if is_12gon {
-                            100. * size.powi(2)
+                            1. * size.powi(2)
                         } else {
-                            0.1 * size.powi(2)
+                            0.15 * size.powi(2)
                         }
                     } else if is_triangle{
                         2.5 * size.powi(2)
@@ -1469,6 +1489,7 @@ impl Map {
                 } else {
                     "square".to_owned()
                 },
+                just_spawned_mode: true,
             });
         }
 
@@ -1500,15 +1521,15 @@ impl Map {
                 o.update(delta);
             }
 
-            // remove <0 hp objects
-            self.tanks.retain(|_, v| v.physics.hp > 0.);
+            // remove <0 hp tanks
+            self.tanks.retain(|_, v| v.physics.hp >= 0.);
 
             // for shapes and bullets, hexagons and bombs must be removed differently
 
             // find hexes that died
             let mut hex_to_remove = Vec::new();
             for (id, shape) in self.shapes.iter() {
-                if shape.texture == "hexagon" && shape.physics.hp <= 0. {
+                if shape.texture == "hexagon" && shape.physics.hp <= 0. && !shape.just_spawned_mode {
                     hex_to_remove.push(id.clone());
                 }
             }
@@ -1528,6 +1549,7 @@ impl Map {
                     self.shapes.insert(thread_rng().gen(), Shape {
                         physics: s_physics,
                         texture: "square".to_owned(),
+                        just_spawned_mode: false,
                     });
                 }
             }
@@ -1581,6 +1603,28 @@ impl Map {
             self.shapes.retain(|_, v| v.physics.hp > 0.);
             // remove all dead bullets now
             self.bullets.retain(|_, v| v.physics.hp > 0.);
+            
+
+            // just spawned mode
+            for shape in self.shapes.values_mut() {
+                if shape.just_spawned_mode {
+                    shape.physics.weight = (shape.physics.hp * 4.).max(1.);
+                    if shape.texture == "12gon" {
+                        shape.physics.collision_size = ((shape.physics.hp*1.333).sqrt()).max(1.);
+                    } else if shape.texture == "hexagon" {
+                        shape.physics.collision_size = ((shape.physics.hp*13.33).sqrt()).max(1.);
+                    } else if shape.texture == "triangle" {
+                        shape.physics.collision_size = ((shape.physics.hp*120.).sqrt()).max(1.);
+                    } else {
+                        shape.physics.collision_size = ((shape.physics.hp*40.).sqrt()).max(1.);
+                    }
+
+                    if shape.physics.hp >= shape.physics.max_hp {
+                        shape.just_spawned_mode = false;
+                        shape.physics.hp_regen /= 16.;
+                    }
+                }
+            }
         }
         // things that happen for pairs, only one is mutable (collisions)
         {
@@ -1626,9 +1670,19 @@ impl Map {
                             // set last hit to source tank
                             if self.tanks.contains_key(&k) && self.bullets.contains_key(&a) {
                                 self.tanks.get_mut(&k).unwrap().last_hit_id = self.bullets.get_mut(&a).unwrap().source_tank_id;
+                                // add xp for kill
+                                if self.tanks.get(&k).unwrap().physics.hp < 0. {
+                                    self.tanks.get_mut(&self.bullets.get(&a).unwrap().source_tank_id).unwrap().evolution.xp += self.tanks.get_mut(&k).unwrap().evolution.killvalue;
+                                    // TODO add kill
+                                }
                             } // other way around
                             else if self.tanks.contains_key(&a) && self.bullets.contains_key(&k) {
                                 self.tanks.get_mut(&a).unwrap().last_hit_id = self.bullets.get_mut(&k).unwrap().source_tank_id;
+                                // add xp for kill
+                                if self.tanks.get(&a).unwrap().physics.hp < 0. {
+                                    self.tanks.get_mut(&self.bullets.get(&k).unwrap().source_tank_id).unwrap().evolution.xp += self.tanks.get_mut(&a).unwrap().evolution.killvalue;
+                                    // TODO add kill
+                                }
                             }
 
                             // if k is a tank, and a is a tank
@@ -1640,15 +1694,15 @@ impl Map {
                             }
 
                             // if k is a tank, and a is a shape
-                            // add xp to the tank, if the shape hp is lees than 0 (it just died)
+                            // add xp to the tank, if the shape hp is lees than 0 (it just died), and if the shape is not in just spawned mode
                             if self.tanks.contains_key(&k) && self.shapes.contains_key(&a) {
-                                if self.shapes.get(&a).unwrap().physics.hp < 0. {
-                                    self.tanks.get_mut(&k).unwrap().evolution.xp += self.shapes.get_mut(&a).unwrap().physics.collision_size.powi(2)*0.01;
+                                if self.shapes.get(&a).unwrap().physics.hp < 0. && !self.shapes.get(&a).unwrap().just_spawned_mode {
+                                    self.tanks.get_mut(&k).unwrap().evolution.add_xp(self.shapes.get_mut(&a).unwrap().physics.collision_size.powi(2)*0.01);
                                 }
                             } // other way around
-                            else if self.tanks.contains_key(&a) && self.shapes.contains_key(&k) {
+                            else if self.tanks.contains_key(&a) && self.shapes.contains_key(&k) && !self.shapes.get(&k).unwrap().just_spawned_mode {
                                 if self.shapes.get(&k).unwrap().physics.hp < 0. {
-                                    self.tanks.get_mut(&a).unwrap().evolution.xp += self.shapes.get_mut(&k).unwrap().physics.collision_size.powi(2)*0.01;
+                                    self.tanks.get_mut(&a).unwrap().evolution.add_xp(self.shapes.get_mut(&k).unwrap().physics.collision_size.powi(2)*0.01);
                                 }
                             }
 
@@ -1656,12 +1710,12 @@ impl Map {
                             // add xp to the source tank, if it exists, and if the shape hp is lees than 0 (it just died)
                             if self.bullets.contains_key(&k) && self.shapes.contains_key(&a) {
                                 if self.tanks.contains_key(&self.bullets.get(&k).unwrap().source_tank_id) && self.shapes.get(&a).unwrap().physics.hp < 0.  {
-                                    self.tanks.get_mut(&self.bullets.get(&k).unwrap().source_tank_id).unwrap().evolution.xp += self.shapes.get_mut(&a).unwrap().physics.collision_size.powi(2)*0.01; 
+                                    self.tanks.get_mut(&self.bullets.get(&k).unwrap().source_tank_id).unwrap().evolution.add_xp(self.shapes.get_mut(&a).unwrap().physics.collision_size.powi(2)*0.01); 
                                 }
                             } // other way around
                             else if self.bullets.contains_key(&a) && self.shapes.contains_key(&k) {
                                 if self.tanks.contains_key(&self.bullets.get(&a).unwrap().source_tank_id) && self.shapes.get(&k).unwrap().physics.hp < 0. {
-                                    self.tanks.get_mut(&self.bullets.get(&a).unwrap().source_tank_id).unwrap().evolution.xp += self.shapes.get_mut(&k).unwrap().physics.collision_size.powi(2)*0.01;
+                                    self.tanks.get_mut(&self.bullets.get(&a).unwrap().source_tank_id).unwrap().evolution.add_xp(self.shapes.get_mut(&k).unwrap().physics.collision_size.powi(2)*0.01);
                                 }
                             }
                         }
@@ -1728,8 +1782,8 @@ fn run() {
 
     // Initialize my own things
     let mut map = Map {
-        map_size: (4_000., 4_000.,),
-        shapes_max: 2000,
+        map_size: (6_000., 6_000.,),
+        shapes_max: 4_000,
         shapes: HashMap::new(),
         tanks: HashMap::new(),
         bullets: HashMap::new(),
@@ -1746,19 +1800,19 @@ fn run() {
     };
 
     // update the physics a little bit before anything else happens
-    for x in 0..1000 {
-        map.update_physics(0.1);
-        if x%500 == 0 {
-            println!("loading: {}%", x/50);
-        }
-    }
+    // for x in 0..1000 {
+    //     map.update_physics(0.1);
+    //     if x%500 == 0 {
+    //         println!("loading: {}%", x/50);
+    //     }
+    // }
 
     let mut last_frame_start;
     // How long the last frame took, in micros, 1 millisecond for the first frame
     let mut delta = 0.01;
 
 
-    while map.tanks.len() < 10 {
+    while map.tanks.len() < 20 {
         let ai_tank_id = thread_rng().gen::<u128>();
 
         // add AI tank
@@ -1785,7 +1839,6 @@ fn run() {
         ev.class = class.to_owned();
 
         let tank =&mut map.tanks.get_mut(&ai_tank_id).unwrap();
-        println!("{}", tank.evolution.class);
         Evolution::level_refresh(tank);            
 
         map.tankais.push(TankAI {
@@ -1929,10 +1982,8 @@ fn run() {
 
             // promoting
             if input.shift.is_down {
-                println!("Current class: {}", player.evolution.class);
                 let classes = &EVOLUTION_TREE.get(&player.evolution.class).expect("this class does not exist in the evolution tree").1;
                 for x in 0..classes.len() {
-                    println!("Press {} to evolve to {:?}", x+1,  classes[x]);
                     let key = match x {
                         0 => input.u1,
                         1 => input.u2,
@@ -1956,54 +2007,42 @@ fn run() {
                         player.evolution.hp_level += 1;
                         player.evolution.xp -= 100.;
                         Evolution::level_refresh(player);
-                        println!("upgraded HP to level {}", player.evolution.hp_level);
                     }
-                    println!("xp: {:.0}", player.evolution.xp);
                 }
                 if input.u2.just && input.u2.is_down {
                     if player.evolution.xp > 100. && player.evolution.regen_level < 10 {
                         player.evolution.regen_level += 1;
                         player.evolution.xp -= 100.;
                         Evolution::level_refresh(player);
-                        println!("upgraded REGEN to level {}", player.evolution.regen_level);
                     }
-                    println!("xp: {:.0}", player.evolution.xp);
                 }
                 if input.u3.just && input.u3.is_down {
                     if player.evolution.xp > 100. && player.evolution.reload_level < 10 {
                         player.evolution.reload_level += 1;
                         player.evolution.xp -= 100.;
                         Evolution::level_refresh(player);
-                        println!("upgraded RELOAD to level {}", player.evolution.reload_level);
                     }
-                    println!("xp: {:.0}", player.evolution.xp);
                 }
                 if input.u4.just && input.u4.is_down {
                     if player.evolution.xp > 100. && player.evolution.damage_level < 10 {
                         player.evolution.damage_level += 1;
                         player.evolution.xp -= 100.;
                         Evolution::level_refresh(player);
-                        println!("upgraded DAMAGE to level {}", player.evolution.damage_level);
                     }
-                    println!("xp: {:.0}", player.evolution.xp);
                 }
                 if input.u5.just && input.u5.is_down {
                     if player.evolution.xp > 100. && player.evolution.speed_level < 10 {
                         player.evolution.speed_level += 1;
                         player.evolution.xp -= 100.;
                         Evolution::level_refresh(player);
-                        println!("upgraded SPEED to level {}", player.evolution.speed_level);
                     }
-                    println!("xp: {:.0}", player.evolution.xp);
                 }
                 if input.u6.just && input.u6.is_down {
                     if player.evolution.xp > 100. && player.evolution.bulletspeed_level < 10 {
                         player.evolution.bulletspeed_level += 1;
                         player.evolution.xp -= 100.;
                         Evolution::level_refresh(player);
-                        println!("upgraded BULLET_SPEED to level {}", player.evolution.bulletspeed_level);
                     }
-                    println!("xp: {:.0}", player.evolution.xp);
                 }
             }
         }
@@ -2106,10 +2145,13 @@ fn run() {
 
         canvas.present();
 
-        delta = Instant::now().duration_since(last_frame_start).as_secs_f64();
+        // the game will slow down at below 30 fps
+        delta = Instant::now().duration_since(last_frame_start).as_secs_f64().min(0.033333);
+        if delta > 0.02 {
+            println!("low fps: {}", 1./delta);
+        }
 
         // TEST PRINTS
-        // println!("fps: {:.0}", 1./delta);
-        // println!("player_xp: {:.0}", map.tanks.get(&playerid).unwrap().evolution.xp);
+        println!("fps: {:.0}", 1./delta);
     }
 }
