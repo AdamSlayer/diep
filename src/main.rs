@@ -66,6 +66,95 @@ lazy_static! {
                 "double".to_string(),
                 "long".to_string(),
                 "wide".to_string(),
+                "bomber".to_string(),
+                "trapper".to_string(),
+                "shotgun".to_string()],
+            1000.
+        ));
+
+
+        hash_set.insert("shotgun".to_string(), (
+            Tank {
+                physics: Physics {
+                    x: 0.,
+                    y: 0.,
+                    xvel: 0.,
+                    yvel: 0.,
+                    weight: 120.,
+                    rot: 0.,
+                    rotvel: 0.,
+                    collision_size: 40.,
+                    hp: 130.,
+                    max_hp: 130.,
+                    hp_regen: 5.,
+                },
+                turrets: vec![],
+                power: 50000.,
+                rot_power: 700.,
+                bullet_ids: vec![],
+                texture: "basic".to_owned(),
+                last_hit_id: 0,
+                evolution: Evolution::new()
+            }, vec![
+
+            ],
+            1000.
+        ));
+
+        for a in 0..41 {
+            let angle = (a as f64 - 20.) / 4.;
+            hash_set.get_mut("shotgun").unwrap().0.turrets.push(Turret {
+                projectile_impulse: 10_000.,
+                projectile_weight: 8.,
+                projectile_collision_size: 6.,
+                projectile_hp_regen: -4.0,
+                projectile_hp: 1.,
+                reload_time: 5.0,
+                inaccuracy: 10.,
+                relative_position: (angle.to_radians().sin()*50.,-angle.to_radians().cos()*50.),
+                relative_direction: angle,
+                ..Default::default()
+            })
+        }
+
+
+        hash_set.insert("trapper".to_string(), (
+            Tank {
+                physics: Physics {
+                    x: 0.,
+                    y: 0.,
+                    xvel: 0.,
+                    yvel: 0.,
+                    weight: 400.,
+                    rot: 0.,
+                    rotvel: 0.,
+                    collision_size: 55.,
+                    hp: 400.,
+                    max_hp: 400.,
+                    hp_regen: 20.,
+                },
+                turrets: vec![Turret {
+                    projectile_impulse: 5_000.,
+                    projectile_weight: 100.,
+                    projectile_collision_size: 5.,
+                    projectile_hp_regen: -1.,
+                    projectile_hp: 100.,
+                    reload_time: 0.4,
+                    inaccuracy: 0.,
+                    relative_position: (0.,-55.),
+                    projectile_texture: "trap".to_string(),
+                    ..Default::default()
+                }],
+                power: 80000.,
+                rot_power: 800.,
+                bullet_ids: vec![],
+                texture: "basic".to_owned(),
+                last_hit_id: 0,
+                evolution: Evolution::new()
+            }, vec![
+                "double".to_string(),
+                "long".to_string(),
+                "wide".to_string(),
                 "bomber".to_string()],
             1000.
         ));
@@ -104,10 +193,8 @@ lazy_static! {
                 last_hit_id: 0,
                 evolution: Evolution::new()
             }, vec![
-                "double".to_string(),
-                "long".to_string(),
-                "wide".to_string(),
-                "bomber".to_string()],
+
+            ],
             1000.
         ));
 
@@ -223,7 +310,7 @@ lazy_static! {
                 last_hit_id: 0,
                 evolution: Evolution::new()
             }, vec![
-                "very long".to_string()],
+            ],
             1000.
         ));
 
@@ -614,7 +701,7 @@ struct Evolution {
 impl Evolution {
     fn new() -> Self {
         Evolution {
-            xp: 0.,
+            xp: 100000.,
             class: "basic".to_string(),
             hp_level: 0,
             regen_level: 0,
@@ -633,7 +720,6 @@ impl Evolution {
 
             let old_tank = tank.clone();
             *tank = EVOLUTION_TREE.get(&class).unwrap().0.clone();
-            println!("{}", tank.turrets[0].projectile_texture);
 
             let ev = &mut tank.evolution;
             let ph = &mut tank.physics;
@@ -1118,8 +1204,8 @@ impl TankAI {
                 self.tg_id = tanks.get(&id).unwrap().last_hit_id;
             }
 
-            // if eighter the tank does not have a target, or it is retreating, find new target. It finds new target when retreating to always retreat from the closest tank
-            if (!self.fighting) || (!tanks.contains_key(&self.tg_id)) {
+            // if eighter the tank does not have a target, or it is retreating, find new target. It finds new target when retreating to always retreat from the closest tank. Does not execute when the tank is attacking a tank back
+            else if (!self.fighting) || (!tanks.contains_key(&self.tg_id)) {
 
                 // search for nearest tank
                 let mut closest_id = 0_u128;
@@ -1315,6 +1401,77 @@ impl Map {
     /// Randomly spawns shapes
     /// 
     fn update_physics(&mut self, delta: f64) {
+        // spawn shapes
+        while self.shapes.len() < self.shapes_max {
+            // from 0.6 to 1.4, squared 0.36 to 1.96
+            let mut size = thread_rng().gen::<f64>() * 0.8 + 0.6;
+            let mut is_hexagon = thread_rng().gen_bool(0.1);
+            let is_triangle = thread_rng().gen_bool(0.4);
+            let mut is_12gon = false;
+
+            if is_hexagon || ((self.shapes_max - self.shapes.len()) > (self.shapes_max as f64 * 0.1) as usize) {
+                if self.shapes.iter().filter(|i| i.1.texture == "12gon").count() < (self.shapes_max as f64 * 0.01) as usize {
+                    size *= 3.;
+                    is_12gon = true;
+                    is_hexagon = true;
+                }
+            }
+
+            if is_hexagon {
+                size *= 4.;
+            }
+
+            if is_triangle && !is_hexagon {
+                size *= 1.2;
+            }
+            let shape_id = thread_rng().gen::<u128>();
+            self.shapes.insert(shape_id, Shape {
+                physics: Physics {
+                    x: thread_rng().gen_range(-self.map_size.0..self.map_size.0),
+                    y: thread_rng().gen_range(-self.map_size.1..self.map_size.1),
+                    xvel: 0.,
+                    yvel: 0.,
+                    weight: if is_12gon {512. * size.powi(2)} else {128. * size.powi(2)},
+                    rot: thread_rng().gen::<f64>()*360.,
+                    rotvel: 0.,
+                    collision_size: 20. * size,
+                    hp: if is_12gon {size.powi(2) * 300.} else {10.},
+                    max_hp: if is_hexagon {
+                        if is_12gon {
+                            300. * size.powi(2)
+                        } else {
+                            30. * size.powi(2)
+                        }
+                    } else if is_triangle{
+                        3.3 * size.powi(2)
+                    } else {
+                        10. * size.powi(2)
+                    },
+                    hp_regen: if is_hexagon {
+                        if is_12gon {
+                            100. * size.powi(2)
+                        } else {
+                            0.1 * size.powi(2)
+                        }
+                    } else if is_triangle{
+                        2.5 * size.powi(2)
+                    } else {
+                        0.5 * size.powi(2)
+                    },
+                },
+                texture: if is_12gon {
+                    "12gon".to_owned()
+                }
+                else if is_hexagon {
+                    "hexagon".to_owned()
+                } else if is_triangle{
+                    "triangle".to_owned()
+                } else {
+                    "square".to_owned()
+                },
+            });
+        }
+
         // things that happen for one (uprate physics, wall collision)
         {
             // mutable iterator over the physics' of all tanks and shapes (not bullets, as these are not affected by map boundnaries)
@@ -1386,18 +1543,18 @@ impl Map {
 
             for id in bombs_to_remove {
                 // handle dead bombs here
-                for x in 0..(self.bullets.get(&id).unwrap().physics.collision_size as usize * 8) {
-                    let angle = x as f64*17.532;
+                for x in 0..120 {
+                    let angle = x as f64*3.;
 
                     let bomb = &mut self.bullets.get(&id).unwrap().clone();
                     let size = bomb.physics.collision_size / 2.;
-                    bomb.physics.collision_size = size;
-                    bomb.physics.weight = size*4.;
-                    bomb.physics.max_hp = size*4.;
-                    bomb.physics.hp = size*4.;
-                    bomb.physics.hp_regen = -size*2.;
-                    bomb.physics.xvel += angle.to_radians().sin() * size * 64. * (1. + thread_rng().gen::<f64>());
-                    bomb.physics.yvel += angle.to_radians().cos() * size * 64. * (1. + thread_rng().gen::<f64>());
+                    bomb.physics.collision_size = bomb.physics.collision_size/2.5;
+                    bomb.physics.weight = bomb.physics.weight/8.;
+                    bomb.physics.max_hp = bomb.physics.max_hp/8.;
+                    bomb.physics.hp = bomb.physics.max_hp;
+                    bomb.physics.hp_regen = -bomb.physics.max_hp/2.;
+                    bomb.physics.xvel += angle.to_radians().sin() * size.powi(2) * 4. * (1. + thread_rng().gen::<f64>());
+                    bomb.physics.yvel += angle.to_radians().cos() * size.powi(2) * 4. * (1. + thread_rng().gen::<f64>());
                     bomb.physics.x += angle.to_radians().sin() * size * 16. * thread_rng().gen::<f64>();
                     bomb.physics.y += angle.to_radians().cos() * size * 16. * thread_rng().gen::<f64>();
                     self.bullets.insert(thread_rng().gen(), Bullet {
@@ -1411,8 +1568,8 @@ impl Map {
                 .chain(self.shapes.iter_mut().map(|shape| &mut shape.1.physics))
                 .chain(self.bullets.iter_mut().map(|bullet| &mut bullet.1.physics));
                 for o in combined_iter_mut {
-                    if o.dist(&bomb.physics) < bomb.physics.collision_size*16. {
-                        let s = (o.dist(&bomb.physics) - bomb.physics.collision_size*16.)*64.;
+                    if o.dist(&bomb.physics) < bomb.physics.collision_size.powi(2) {
+                        let s = (o.dist(&bomb.physics) - bomb.physics.collision_size.powi(2))*64.;
                         let dir = normalize(vector_diff((o.x, o.y), (bomb.physics.x, bomb.physics.y)));
                         o.push((s*dir.0, s*dir.1));
                     }
@@ -1459,8 +1616,11 @@ impl Map {
                             // key object physics (the just added object)
                             let mut kp = (self.get_physics(&k).unwrap()).clone();
 
-                            self.get_physics_mut(&k).unwrap().collide(&ap, delta);                       
-                            self.get_physics_mut(&a).unwrap().collide(&mut kp, delta);
+                            // disbled collision for bullets of the same source
+                            if !(self.bullets.contains_key(&a) &&self.bullets.contains_key(&k) && (self.bullets.get(&a).unwrap().source_tank_id == self.bullets.get(&k).unwrap().source_tank_id)) {
+                                self.get_physics_mut(&k).unwrap().collide(&ap, delta);                       
+                                self.get_physics_mut(&a).unwrap().collide(&mut kp, delta);
+                            }
 
                             // if k is a tank, and a is a bullet
                             // set last hit to source tank
@@ -1520,56 +1680,6 @@ impl Map {
                 turret.time_to_next_shot -= turret.time_to_next_shot.min(delta);
             }
         }
-
-        // spawn shapes
-        while self.shapes.len() < self.shapes_max {
-            // from 0.6 to 1.4, squared 0.36 to 1.96
-            let mut size = thread_rng().gen::<f64>() * 0.8 + 0.6;
-            let is_hexagon = thread_rng().gen_bool(0.1);
-            let is_triangle = thread_rng().gen_bool(0.4);
-            if is_hexagon {
-                size *= 4.;
-            }
-
-            if is_triangle && !is_hexagon {
-                size *= 1.2;
-            }
-            let shape_id = thread_rng().gen::<u128>();
-            self.shapes.insert(shape_id, Shape {
-                physics: Physics {
-                    x: thread_rng().gen_range(-self.map_size.0..self.map_size.0),
-                    y: thread_rng().gen_range(-self.map_size.1..self.map_size.1),
-                    xvel: 0.,
-                    yvel: 0.,
-                    weight: 100. * size.powi(2),
-                    rot: thread_rng().gen::<f64>()*360.,
-                    rotvel: 0.,
-                    collision_size: 20. * size,
-                    hp: 0.,
-                    max_hp: if is_hexagon {
-                        30. * size.powi(2)
-                    } else if is_triangle{
-                        3.3 * size.powi(2)
-                    } else {
-                        10. * size.powi(2)
-                    },
-                    hp_regen: if is_hexagon {
-                        0.1 * size.powi(2)
-                    } else if is_triangle{
-                        2.5 * size.powi(2)
-                    } else {
-                        0.5 * size.powi(2)
-                    },
-                },
-                texture: if is_hexagon {
-                    "hexagon".to_owned()
-                } else if is_triangle{
-                    "triangle".to_owned()
-                } else {
-                    "square".to_owned()
-                },
-            });
-        }
     }
 }
 
@@ -1603,11 +1713,13 @@ fn run() {
     // HashMap of all the textures used in the game. Later will read all textures form the textures folder and add them to the hashmap by the filename without the extension
     let mut textures: HashMap<String, Texture> = HashMap::new();
     textures.insert("bullet".to_owned(), texture_creator.load_texture("textures/bullet.png").unwrap());
+    textures.insert("trap".to_owned(), texture_creator.load_texture("textures/trap.png").unwrap());
     textures.insert("bomb".to_owned(), texture_creator.load_texture("textures/bomb.png").unwrap());
 
     textures.insert("square".to_owned(), texture_creator.load_texture("textures/square.png").unwrap());
     textures.insert("hexagon".to_owned(), texture_creator.load_texture("textures/hexagon.png").unwrap());
     textures.insert("triangle".to_owned(), texture_creator.load_texture("textures/triangle.png").unwrap());
+    textures.insert("12gon".to_owned(), texture_creator.load_texture("textures/12gon.png").unwrap());
 
     textures.insert("basic".to_owned(), texture_creator.load_texture("textures/basic.png").unwrap());
     textures.insert("long".to_owned(), texture_creator.load_texture("textures/long.png").unwrap());
@@ -1616,8 +1728,8 @@ fn run() {
 
     // Initialize my own things
     let mut map = Map {
-        map_size: (5_000., 5_000.,),
-        shapes_max: 5000,
+        map_size: (4_000., 4_000.,),
+        shapes_max: 2000,
         shapes: HashMap::new(),
         tanks: HashMap::new(),
         bullets: HashMap::new(),
@@ -1679,7 +1791,11 @@ fn run() {
         map.tankais.push(TankAI {
             id: ai_tank_id,
             range: 2048.,
-            tg_range: (tank.turrets[0].projectile_impulse/tank.turrets[0].projectile_weight).sqrt()  *  (tank.turrets[0].projectile_hp/-tank.turrets[0].projectile_hp_regen).sqrt()  *  8.,
+            tg_range: if tank.evolution.class == "shotgun" {
+                128.
+            } else {
+                (tank.turrets[0].projectile_impulse/tank.turrets[0].projectile_weight).sqrt()  *  (tank.turrets[0].projectile_hp/-tank.turrets[0].projectile_hp_regen).sqrt()  *  8.
+            },
             bullet_speed: tank.turrets[0].projectile_impulse/tank.turrets[0].projectile_weight,
             fight_threshold: 0.5,
             flight_threshold: 0.2,
