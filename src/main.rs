@@ -106,7 +106,7 @@ impl Physics {
     fn collide(&mut self, b: &Physics, delta: f64) {
         if (self.collision_size + b.collision_size) > self.dist(&b) {
             let speed_diff = vector_lenght(vector_diff((b.xvel, b.yvel), (self.xvel, self.yvel)));
-            let s = delta*(speed_diff+64.)*16.;
+            let s = delta*(speed_diff+64.)*8.;
             self.xvel *= (-delta*4.).exp();
             self.yvel *= (-delta*4.).exp();
             let n = normalize((self.x - b.x, self.y - b.y));
@@ -157,7 +157,7 @@ impl Shape {
 }
 
 /// Turrets can now only shoot bullets, will change later
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Turret {
     /// should be about 1000x the weight for normal speed
     projectile_impulse: f64,
@@ -242,6 +242,7 @@ impl Turret {
             bullet_physics.y += (self.relative_direction+tank_physics.rot).to_radians().cos()*(self.relative_position.1);
             bullet_physics.hp_regen = self.projectile_hp_regen;
             bullet_physics.hp = self.projectile_hp;
+            bullet_physics.max_hp = self.projectile_hp;
 
             self.time_to_next_shot = self.reload_time;
 
@@ -259,7 +260,7 @@ impl Turret {
 /// Available upgrades (might change in the future): 1:max hp, 2:hp regeneration, 3:reload time, 4:projectile hp(projectile hp regen decreases accordingly), 5: movement speed(also affects rotation speed), 6: projectile speed(impulse)
 /// 
 /// Promoting to a higher class will delete all upgrades, will likely change in the future
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Evolution {
     xp: f64,
     class: String,
@@ -329,6 +330,7 @@ impl Evolution {
 
     /// Makes the physical properties (hp, power, hp_regen etc.) of the tank match it's class and levels. Always call after changing a level or a class.
     fn level_refresh(tank: &mut Tank) {
+
         // the default tank for this class
         let default_tank = EVOLUTION_TREE.get(&tank.evolution.class).unwrap().0.clone();
 
@@ -383,7 +385,7 @@ impl Evolution {
 }
 
 /// A tank. Player, bot, boss etc
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Tank {
     physics: Physics,
     /// How much power the tank can apply to it's movement. Will move faster with more power, but slower if it weights more.
@@ -535,6 +537,8 @@ impl Camera {
     /// x, y is in map coords
     fn visible(&self, (x,y) : (f64, f64), radius:f64) -> bool{
         let (x, y) = self.to_screen_coords((x, y));
+
+        let radius = radius*4.*self.zoom*((self.viewport_size.0.pow(2)+self.viewport_size.1.pow(2)) as f64).sqrt()/1024.;
 
         x > -radius as i32 && x < self.viewport_size.0 + radius as i32 &&
         y > -radius as i32 && y < self.viewport_size.1 + radius as i32
@@ -719,10 +723,6 @@ struct TankAI {
     tg_range: f64,
     /// how fast the bullets are, used for aiming. projectile_impulse/projectile_weight of the turret
     bullet_speed: f64,
-    /// starts fighting when its health gets above this
-    fight_threshold: f64,
-    /// starts escaping away when its health below above this
-    flight_threshold: f64,
     /// is the tank currently fighting, if false it is flighting
     fighting: bool,
     /// set to `true` to make the tank dodge obstacles. Usually its good to turn on, besides tanks like smasher that do a lot of damage by colliding
@@ -780,37 +780,43 @@ impl TankAI {
                     }
                 // upgrading levels
                 } else {
+                    rb[1] = thread_rng().gen_bool(0.05);
+                    rb[2] = thread_rng().gen_bool(0.15);
+                    rb[3] = thread_rng().gen_bool(0.45);
+                    rb[4] = thread_rng().gen_bool(0.6);
+                    rb[5] = thread_rng().gen_bool(0.2);
+                    rb[6] = thread_rng().gen_bool(1.);
                     if rb[1] {
                         if con_tank.evolution.hp_level < 10 {
                             con_tank.evolution.hp_level += 1;
                             con_tank.evolution.xp -= 100.;
                         }
                     }
-                    if rb[2] {
+                    else if rb[2] {
                         if con_tank.evolution.regen_level < 10 {
                             con_tank.evolution.regen_level += 1;
                             con_tank.evolution.xp -= 100.;
                         }
                     }
-                    if rb[3] {
+                    else if rb[3] {
                         if con_tank.evolution.reload_level < 10 {
                             con_tank.evolution.reload_level += 1;
                             con_tank.evolution.xp -= 100.;
                         }
                     }
-                    if rb[4] {
+                    else if rb[4] {
                         if con_tank.evolution.damage_level < 10 {
                             con_tank.evolution.damage_level += 1;
                             con_tank.evolution.xp -= 100.;
                         }
                     }
-                    if rb[5] {
+                    else if rb[5] {
                         if con_tank.evolution.speed_level < 10 {
                             con_tank.evolution.speed_level += 1;
                             con_tank.evolution.xp -= 100.;
                         }
                     }
-                    if rb[6] {
+                    else if rb[6] {
                         if con_tank.evolution.bulletspeed_level < 10 {
                             con_tank.evolution.bulletspeed_level += 1;
                             con_tank.evolution.xp -= 100.;
@@ -821,20 +827,14 @@ impl TankAI {
                 self.next_upgrade_is_promotion = thread_rng().gen_bool(0.05);
             }
 
-            // switch between fight and flight. happens at the end of the frame intentianaly
-            if (con_tankp.hp / con_tankp.max_hp) > self.fight_threshold {
-                self.fighting = true
-            } else if (con_tankp.hp / con_tankp.max_hp) < self.flight_threshold {
-                self.fighting = false;
-            }
-
             // attack the tank that last hit the controlled tank, if it is in range
             if tanks.contains_key(&tanks.get(&id).unwrap().last_hit_id) && tanks.get(&tanks.get(&id).unwrap().last_hit_id).unwrap().physics.dist(&con_tankp) < self.range && tanks.get(&id).unwrap().last_hit_id != id {
                 self.tg_id = tanks.get(&id).unwrap().last_hit_id;
+                tanks.get_mut(&id).unwrap().last_hit_id = 0;
             }
 
-            // if eighter the tank does not have a target, or it is retreating, find new target. It finds new target when retreating to always retreat from the closest tank. Does not execute when the tank is attacking a tank back
-            else if (!self.fighting) || (!tanks.contains_key(&self.tg_id)) {
+            // if the tank does not have a target, find new target. Does not execute when the tank is attacking a tank back
+            else if !tanks.contains_key(&self.tg_id) {
 
                 // search for nearest tank
                 let mut closest_id = 0_u128;
@@ -845,36 +845,15 @@ impl TankAI {
                         closest_id = *oid;
                     }
                 }
-                // if nearest tank is in range, set target to this tank.
-                // TEMP this *gen_bool... below makes tank ignore all enemies unless thay attack first. The chance is 1 to 100 per second that it will attack first
-                if closest_dist < self.range * if thread_rng().gen_bool(delta*0.01) {1.} else {0.} {
-                    self.tg_id = closest_id;
-                // else if the last hit tank is in range
-                }
-                // attack shapes
-                else {
-                    // search for nearest shape
-                    let mut closest_id = 0_u128;
-                    let mut closest_dist = 100000000.;
-                    for (oid, shape) in shapes.iter() {
-                        if shape.physics.dist(&con_tankp) < closest_dist && shape.texture != "12gon" && !shape.just_spawned_mode {
-                            closest_dist = shape.physics.dist(&tanks.get(&id).unwrap().physics);
-                            closest_id = *oid;
-                        }
-                    }
 
-                    // if it found a shape, attack and chase it
-                    if closest_id != 0 {
-                        let clo_shapep = shapes.get(&closest_id).unwrap().physics;
-                        let tg_pos = (clo_shapep.x, clo_shapep.y);
-                        tanks.get_mut(&id).unwrap().rotate_to((tg_pos.0, tg_pos.1), delta);
-                        tanks.get_mut(&id).unwrap().fire(&mut bullets, id);
-                        
-                        // movedir is set to a very low value, so it is easily overriden by the obstacle avoiding algorithm, to prevent tanks from colliding with low hp shapes when farming shapes
-                        movedir = normalize((tg_pos.0 - con_tankp.x, tg_pos.1 - con_tankp.y));
-                        movedir = (movedir.0 * 0.01, movedir.1 * 0.01)
+                self.fighting = true;
+                if tanks.contains_key(&closest_id) {
+                    let clo_tankp = tanks.get(&closest_id).unwrap().physics;
+                    // switch between fight and flight. depends on closest tank only. attacks only if the tank has at least 2x as much HP as enemy
+                    if con_tankp.hp / clo_tankp.hp < 2. {
+                        self.fighting = false
                     }
-                }
+                }                
             }
 
             // does the target exist in the tanks hashmap
@@ -897,10 +876,10 @@ impl TankAI {
                 let tg_vel = ((tgp.xvel - con_tankp.xvel) * ((tg_dist/(0.6 * self.bullet_speed)).exp()) / 5.0, (tgp.yvel - con_tankp.yvel) * ((tg_dist/(0.6 * self.bullet_speed)).exp()) / 5.0);
 
                 // move
-                if self.fighting && con_tankp.dist(&tgp) > self.tg_range*1.2 {
+                if self.fighting && (con_tankp.dist(&tgp) > self.tg_range*1.2) {
                     // move towards
                     movedir = normalize((tg_pos.0 + tg_vel.0 - con_tankp.x, tg_pos.1 + tg_vel.1 - con_tankp.y));
-                } else if !self.fighting || con_tankp.dist(&tgp) < self.tg_range*0.8 {
+                } else if (!self.fighting) || (con_tankp.dist(&tgp) < self.tg_range*0.8) {
                     // move away
                     movedir = normalize((-(tg_pos.0 + tg_vel.0 - con_tankp.x), -(tg_pos.1 + tg_vel.1 - con_tankp.y)));
                 } else {
@@ -924,6 +903,33 @@ impl TankAI {
                 
             } else {
                 self.tg_id = 0;
+
+                // search for nearest shape
+                let mut closest_id = 0_u128;
+                let mut best_rating: f64 = 0.;
+                for (oid, shape) in shapes.iter() {
+                    if shape.physics.collision_size / (shape.physics.hp + con_tankp.dist(&shape.physics)) > best_rating && shape.texture != "12gon" && !shape.just_spawned_mode {
+                        // favor shapes with lot of xp, short distance and low hp
+                        best_rating = shape.physics.collision_size / (shape.physics.hp * 4. + shape.physics.hp_regen * 0.5 + con_tankp.dist(&shape.physics));
+                        closest_id = *oid;
+                    }
+                }
+
+                // if it found a shape, attack and chase it
+                if closest_id != 0 {
+                    let clo_shapep = shapes.get(&closest_id).unwrap().physics;
+                    let tg_pos = (clo_shapep.x, clo_shapep.y);
+                    tanks.get_mut(&id).unwrap().rotate_to((tg_pos.0, tg_pos.1), delta);
+                    tanks.get_mut(&id).unwrap().fire(&mut bullets, id);
+                    
+                    // movedir is set to a very low value, so it is easily overriden by the obstacle avoiding algorithm, to prevent tanks from colliding with low hp shapes when farming shapes
+                    movedir = normalize((tg_pos.0 - con_tankp.x, tg_pos.1 - con_tankp.y));
+                    if con_tankp.hp + clo_shapep.hp > 0.8*con_tankp.max_hp {
+                        movedir = (movedir.0 * 2., movedir.1 * 2.)
+                    } else {
+                        movedir = (movedir.0 * 0.01, movedir.1 * 0.01)
+                    }
+                }
             }
 
             // avoid obstacles
@@ -933,7 +939,7 @@ impl TankAI {
                     if con_tankp.dist(&sp) < (sp.collision_size + con_tankp.collision_size + con_tankp.speed()*0.5)*1.1  {
                         // move directly away from the shape, overriding the move direction determined before
                         let shape_away_dir = normalize((-(sp.x - con_tankp.x), -(sp.y - con_tankp.y)));
-                        movedir = (movedir.0 + shape_away_dir.0*sp.hp/con_tankp.hp * 2., movedir.1 + shape_away_dir.1*sp.hp/con_tankp.hp * 2.);
+                        movedir = (movedir.0 + shape_away_dir.0*sp.hp/con_tankp.hp * 4., movedir.1 + shape_away_dir.1*sp.hp/con_tankp.hp * 4.);
 
                     }
                 }
@@ -941,14 +947,18 @@ impl TankAI {
 
             // avoid bullets
             if self.dodge_obstacles {
-                for (sp, source) in bullets.iter().map(|s| (s.1.physics, s.1.source_tank_id)) {
+                for (bullet, source) in bullets.iter().map(|s| (s.1, s.1.source_tank_id)) {
                     // if the bullet is close (distance increases when the tank is going fast)
-                    if con_tankp.dist(&sp) < (sp.collision_size + con_tankp.collision_size + sp.speed()*1.) && source != id  {
-                        let bdist = con_tankp.dist(&sp);
+                    if con_tankp.dist(&bullet.physics) < (bullet.physics.collision_size + con_tankp.collision_size + bullet.physics.speed()*1. * if bullet.texture == "bomb" {1024.} else {1.}) && source != id  {
+                        let bdist = con_tankp.dist(&bullet.physics);
 
                         // move directly away from the bullet, overriding the move direction determined before
-                        let bullet_away_dir = normalize((-(sp.x + sp.xvel - con_tankp.x), -(sp.y + sp.yvel - con_tankp.y)));
-                        movedir = (movedir.0 + bullet_away_dir.0*sp.hp/con_tankp.hp /bdist * 65536., movedir.1 + bullet_away_dir.1*sp.hp/con_tankp.hp /bdist * 65536.);
+                        let bullet_away_dir = normalize((-(bullet.physics.x + bullet.physics.xvel - con_tankp.x), -(bullet.physics.y + bullet.physics.yvel - con_tankp.y)));
+                        if bullet.texture == "bomb" {
+                            movedir = (movedir.0 + bullet_away_dir.0*bullet.physics.hp/con_tankp.hp /bdist * 131072., movedir.1 + bullet_away_dir.1*bullet.physics.hp/con_tankp.hp /bdist * 131072.);
+                        } else {
+                            movedir = (movedir.0 + bullet_away_dir.0*bullet.physics.hp/con_tankp.hp /bdist * 4., movedir.1 + bullet_away_dir.1*bullet.physics.hp/con_tankp.hp /bdist * 4.);
+                        }
 
                     }
                 }
@@ -1034,7 +1044,6 @@ impl Map {
         self.shapes.retain(|_, v| v.physics.speed() <= 50_000.);
 
         // spawn shapes
-        println!("shapes: {}", self.shapes.len());
         for _ in 0..(if thread_rng().gen_bool((delta * 4.).clamp(0., 1.)) {1} else {0} * (self.shapes_max - self.shapes.len()) / 64) {
 
             let (x, y) = (thread_rng().gen_range(-self.map_size.0..self.map_size.0), thread_rng().gen_range(-self.map_size.0..self.map_size.0));
@@ -1138,6 +1147,13 @@ impl Map {
 
             for o in combined_iter_mut {
                 o.update(delta);
+            }
+
+            for b in self.bullets.iter() {
+                if (-b.1.physics.hp_regen*10. < b.1.physics.hp ) && b.1.texture != "trap"{
+                    println!("{:?}, {}", b.1, self.tanks.get(&b.1.source_tank_id).unwrap().evolution.class);
+                    panic!()
+                }
             }
 
             // remove <0 hp tanks
@@ -1411,8 +1427,8 @@ fn run() {
 
     // Initialize my own things
     let mut map = Map {
-        map_size: (10_000., 10_000.,),
-        shapes_max: 8_000,
+        map_size: (8_000., 8_000.,),
+        shapes_max: 6_000,
         shapes: HashMap::new(),
         tanks: HashMap::new(),
         bullets: HashMap::new(),
@@ -1488,7 +1504,7 @@ fn run() {
 
         // SPAWN TANKS
 
-        while map.tanks.len() < 100 {
+        while map.tanks.len() < 50 {
             let ai_tank_id = thread_rng().gen::<u128>();
     
             // add AI tank
@@ -1518,15 +1534,13 @@ fn run() {
     
             map.tankais.push(TankAI {
                 id: ai_tank_id,
-                range: 2048.,
+                range: 3072.,
                 tg_range: if tank.evolution.class == "shotgun" {
                     128.
                 } else {
                     (tank.turrets[0].projectile_impulse/tank.turrets[0].projectile_weight).sqrt()  *  (tank.turrets[0].projectile_hp/-tank.turrets[0].projectile_hp_regen).sqrt()  *  8.
                 },
                 bullet_speed: tank.turrets[0].projectile_impulse/tank.turrets[0].projectile_weight,
-                fight_threshold: 0.5,
-                flight_threshold: 0.2,
                 dodge_obstacles: true,
                 fighting: true,
                 tg_id: 0,
@@ -1765,6 +1779,50 @@ fn run() {
 
                 y_offset += texture_query.height as i32; // Increase Y offset for the next line
             }
+
+            // leaderbord
+
+            let mut best_players: Vec<f64> = 
+            map.tanks.iter().map(|t| t.1.evolution.killvalue*2.).collect();
+            best_players.sort_by(|a, b| b.partial_cmp(a).unwrap());
+            println!("top tank");
+            for t in map.tanks.values() {
+                if t.evolution.killvalue*2. == best_players[0] {
+                    println!("evolution: {:?}", t)
+                }
+            }
+
+            let text = format!(
+                "TOP PLAYERS BY XP EARNED: \n1. {:.0}\n2. {:.0}\n3. {:.0}\n4. {:.0}\n5. {:.0}\n 25.{:.0}",
+                best_players[0], best_players[1], best_players[2], best_players[3], best_players[4], best_players[24]
+            );
+
+            let mut y_offset = 40; // Adjust the Y offset for each line
+
+            for line in text.lines() {
+                // Skip rendering empty or whitespace-only lines
+                if line.trim().is_empty() {
+                    continue;
+                }
+
+                let surface = font
+                    .render(line)
+                    .blended(Color::RGB(255, 255, 255))
+                    .map_err(|e| e.to_string())
+                    .unwrap();
+                let texture_creator: TextureCreator<_> = canvas.texture_creator();
+                let texture = texture_creator
+                    .create_texture_from_surface(&surface)
+                    .map_err(|e| e.to_string())
+                    .unwrap();
+                let texture_query = texture.query();
+                let dest_rect = Rect::new(camera.viewport_size.0 - 512, y_offset, texture_query.width, texture_query.height);
+                canvas.copy(&texture, None, dest_rect).unwrap();
+
+                y_offset += texture_query.height as i32; // Increase Y offset for the next line
+            }
+
+
         }
 
         canvas.present();
@@ -1776,6 +1834,6 @@ fn run() {
         }
 
         // TEST PRINTS
-        println!("fps: {:.0}", 1./delta);
+        // println!("fps: {:.0}", 1./delta);
     }
 }
