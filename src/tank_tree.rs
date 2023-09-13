@@ -51,11 +51,85 @@ lazy_static! {
                 ..Default::default()
             }, vec![
                 "double".to_string(),
-                "long".to_string(),
-                "wide".to_string(),
+                "sniper".to_string(),
                 "bomber".to_string(),
                 "trapper".to_string(),
-                "shotgun".to_string()],
+                "spawner".to_string(),],
+            1000.
+        ));
+
+
+        hash_set.insert("spawner".to_string(), (
+            Tank {
+                physics: Physics {
+                    x: 0.,
+                    y: 0.,
+                    xvel: 0.,
+                    yvel: 0.,
+                    weight: 75.,
+                    rot: 0.,
+                    rotvel: 0.,
+                    collision_size: 40.,
+                    hp: 75.,
+                    max_hp: 75.,
+                    hp_regen: 2.,
+                },
+                turrets: vec![Turret {
+                    projectile_impulse: 1_000.,
+                    projectile_weight: 3.,
+                    projectile_collision_size: 12.,
+                    projectile_hp_regen: -0.5,
+                    projectile_hp: 6.,
+                    reload_time: 0.8,
+                    inaccuracy: 1.,
+                    relative_position: (0.,-52.),
+                    projectile_texture: "drone".to_string(),
+                    ..Default::default()
+                }],
+                power: 15000.,
+                rot_power: 450.,
+                texture: "spawner".to_owned(),
+                ..Default::default()
+            }, vec![
+                "infector".to_owned()
+            ],
+            1000.
+        ));
+
+
+        hash_set.insert("infector".to_string(), (
+            Tank {
+                physics: Physics {
+                    x: 0.,
+                    y: 0.,
+                    xvel: 0.,
+                    yvel: 0.,
+                    weight: 90.,
+                    rot: 0.,
+                    rotvel: 0.,
+                    collision_size: 35.,
+                    hp: 90.,
+                    max_hp: 90.,
+                    hp_regen: 2.,
+                },
+                turrets: vec![Turret {
+                    projectile_impulse: 1_000.,
+                    projectile_weight: 3.,
+                    projectile_collision_size: 12.,
+                    projectile_hp_regen: -0.5,
+                    projectile_hp: 6.,
+                    reload_time: 1.2,
+                    inaccuracy: 1.,
+                    relative_position: (0.,-52.),
+                    projectile_texture: "drone".to_string(),
+                    ..Default::default()
+                }],
+                power: 15000.,
+                rot_power: 450.,
+                texture: "infector".to_owned(),
+                ..Default::default()
+            }, vec![
+            ],
             1000.
         ));
 
@@ -119,12 +193,12 @@ lazy_static! {
                     hp_regen: 4.,
                 },
                 turrets: vec![Turret {
-                    projectile_impulse: 5_000.,
+                    projectile_impulse: 8_000.,
                     projectile_weight: 100.,
                     projectile_collision_size: 5.,
-                    projectile_hp_regen: -1.,
+                    projectile_hp_regen: -5.,
                     projectile_hp: 100.,
-                    reload_time: 0.5,
+                    reload_time: 0.4,
                     inaccuracy: 0.,
                     relative_position: (0.,-65.),
                     projectile_texture: "trap".to_string(),
@@ -135,10 +209,8 @@ lazy_static! {
                 texture: "basic".to_owned(),
                 ..Default::default()                
             }, vec![
-                "double".to_string(),
-                "long".to_string(),
-                "wide".to_string(),
-                "bomber".to_string()],
+                // "candy".to_string(),
+                ],
             1000.
         ));
 
@@ -196,12 +268,12 @@ lazy_static! {
                     hp_regen: 2.,
                 },
                 turrets: vec![Turret {
-                    projectile_impulse: 2_000.,
-                    projectile_weight: 20.,
-                    projectile_collision_size: 12.,
-                    projectile_hp_regen: -3.,
-                    projectile_hp: 15.,
-                    reload_time: 3.,
+                    projectile_impulse: 0_000.,
+                    projectile_weight: 30.,
+                    projectile_collision_size: 32.,
+                    projectile_hp_regen: -5.,
+                    projectile_hp: 25.,
+                    reload_time: 7.,
                     inaccuracy: 1.,
                     relative_position: (0.,-70.),
                     projectile_texture: "bomb".to_string(),
@@ -212,50 +284,112 @@ lazy_static! {
                 texture: "wide".to_owned(),
                 ..Default::default()                
             }, vec![
-                "fatbomber".to_string()
+                "tribomber".to_string(),
+                "trapbomber".to_string(),
             ],
             1000.
         ));
 
-
-        hash_set.insert("fatbomber".to_string(), (
+        hash_set.insert("trapbomber".to_string(), (
             Tank {
                 physics: Physics {
                     x: 0.,
                     y: 0.,
                     xvel: 0.,
                     yvel: 0.,
-                    weight: 120.,
+                    weight: 70.,
                     rot: 0.,
                     rotvel: 0.,
-                    collision_size: 60.,
-                    hp: 120.,
-                    max_hp: 120.,
-                    hp_regen: 3.,
+                    collision_size: 45.,
+                    hp: 70.,
+                    max_hp: 70.,
+                    hp_regen: 2.,
                 },
                 turrets: vec![Turret {
-                    projectile_impulse: 15_000.,
-                    projectile_weight: 100.,
-                    projectile_collision_size: 36.,
-                    projectile_hp_regen: -8.,
-                    projectile_hp: 40.,
-                    reload_time: 12.,
+                    projectile_impulse: 4_000.,
+                    projectile_weight: 200.,
+                    projectile_collision_size: 12.,
+                    projectile_hp_regen: -10.,
+                    projectile_hp: 200.,
+                    reload_time: 1.0,
                     inaccuracy: 1.,
-                    relative_position: (0.,-95.),
-                    projectile_texture: "bomb".to_string(),
+                    relative_position: (0.,-80.),
+                    projectile_texture: "trapbomb".to_string(),
                     ..Default::default()
                 }],
                 power: 35000.,
-                rot_power: 800.,
+                rot_power: 600.,
+                texture: "wide".to_owned(),
+                ..Default::default()                
+            }, vec![],
+            1000.
+        ));
+
+        hash_set.insert("tribomber".to_string(), (
+            Tank {
+                physics: Physics {
+                    x: 0.,
+                    y: 0.,
+                    xvel: 0.,
+                    yvel: 0.,
+                    weight: 80.,
+                    rot: 0.,
+                    rotvel: 0.,
+                    collision_size: 55.,
+                    hp: 80.,
+                    max_hp: 80.,
+                    hp_regen: 2.,
+                },
+                turrets: vec![Turret {
+                    projectile_impulse: 5_000.,
+                    projectile_weight: 20.,
+                    projectile_collision_size: 24.,
+                    projectile_hp_regen: -3.,
+                    projectile_hp: 15.,
+                    reload_time: 7.,
+                    inaccuracy: 1.,
+                    relative_position: (-15.,-65.),
+                    projectile_texture: "bomb".to_string(),
+                    relative_direction: -10.,
+                    ..Default::default()
+                },
+                Turret {
+                    projectile_impulse: 5_000.,
+                    projectile_weight: 20.,
+                    projectile_collision_size: 24.,
+                    projectile_hp_regen: -3.,
+                    projectile_hp: 15.,
+                    reload_time: 7.,
+                    inaccuracy: 1.,
+                    relative_position: (0.,-70.),
+                    projectile_texture: "bomb".to_string(),
+                    relative_direction: 0.,
+                    ..Default::default()
+                },
+                Turret {
+                    projectile_impulse: 5_000.,
+                    projectile_weight: 20.,
+                    projectile_collision_size: 24.,
+                    projectile_hp_regen: -3.,
+                    projectile_hp: 15.,
+                    reload_time: 7.,
+                    inaccuracy: 1.,
+                    relative_position: (15.,-65.),
+                    projectile_texture: "bomb".to_string(),
+                    relative_direction: 10.,
+                    ..Default::default()
+                }
+                ],
+                power: 25000.,
+                rot_power: 600.,
                 texture: "wide".to_owned(),
                 ..Default::default()                
             }, vec![
-                // evolve to
             ],
             1000.
         ));
 
-        hash_set.insert("long".to_string(), (
+        hash_set.insert("sniper".to_string(), (
             Tank {
                 physics: Physics {
                     x: 0.,
@@ -282,9 +416,12 @@ lazy_static! {
                 }],
                 power: 7500.,
                 rot_power: 80.,
-                texture: "long".to_owned(),
+                texture: "sniper".to_owned(),
                 ..Default::default()                
             }, vec![
+                // "assasin".to_string(),
+                "wide".to_string(),
+                "shotgun".to_string(),
             ],
             1000.
         ));
@@ -332,7 +469,10 @@ lazy_static! {
                 texture: "double".to_owned(),
                 ..Default::default()                
             }, vec![
-                "machine".to_string()],
+                "machine".to_string(),
+                // "triple".to_string(),
+                // "cross".to_string()
+            ],
             1000.
         ));
 
@@ -343,69 +483,31 @@ lazy_static! {
                     y: 0.,
                     xvel: 0.,
                     yvel: 0.,
-                    weight: 100.,
+                    weight: 160.,
                     rot: 0.,
                     rotvel: 0.,
-                    collision_size: 50.,
-                    hp: 100.,
-                    max_hp: 100.,
+                    collision_size: 60.,
+                    hp: 160.,
+                    max_hp: 160.,
                     hp_regen: 2.,
                 },
                 turrets: vec![Turret {
-                    projectile_impulse: 55_000.,
-                    projectile_weight: 90.,
-                    projectile_collision_size: 30.,
-                    projectile_hp_regen: -20.,
-                    projectile_hp: 80.,
-                    reload_time: 2.0,
-                    inaccuracy: 1.,
-                    relative_position: (0.,-75.),
-                    ..Default::default()
-                }],
-                power: 8000.,
-                rot_power: 120.,
-                texture: "wide".to_owned(),
-                ..Default::default()                
-            }, vec![
-                "superwide".to_string(),
-                ],
-            1000.
-        ));
-
-        hash_set.insert("superwide".to_string(), (
-            Tank {
-                physics: Physics {
-                    x: 0.,
-                    y: 0.,
-                    xvel: 0.,
-                    yvel: 0.,
-                    weight: 200.,
-                    rot: 0.,
-                    rotvel: 0.,
-                    collision_size: 65.,
-                    hp: 200.,
-                    max_hp: 200.,
-                    hp_regen: 4.,
-                },
-                turrets: vec![Turret {
-                    projectile_impulse: 130_000.,
-                    projectile_weight: 180.,
+                    projectile_impulse: 75_000.,
+                    projectile_weight: 100.,
                     projectile_collision_size: 40.,
-                    projectile_hp_regen: -50.,
-                    projectile_hp: 150.,
-                    reload_time: 4.,
-                    inaccuracy: 1.,
-                    relative_position: (0.,-110.),
+                    projectile_hp_regen: -25.,
+                    projectile_hp: 100.,
+                    reload_time: 3.0,
+                    inaccuracy: 0.,
+                    relative_position: (0.,-90.),
                     ..Default::default()
                 }],
-                power: 10000.,
+                power: 12000.,
                 rot_power: 150.,
                 texture: "wide".to_owned(),
                 ..Default::default()                
-            }, vec![
-                // evolve to
-            ],
-            3000.
+            }, vec![],
+            1000.
         ));
 
         // Add more entries here using hash_set.insert() as needed

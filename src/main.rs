@@ -31,7 +31,7 @@ fn vector_diff(v1: (f64, f64), v2: (f64, f64)) -> (f64, f64) {
 }
 
 fn vector_lenght(v: (f64, f64)) -> f64 {
-    f64::sqrt(v.0.powi(2) + v.0.powi(2))
+    f64::sqrt(v.0.powi(2) + v.1.powi(2))
 }
 
 /// returns vector with lenght `1.0`, or `(0.0, 0.0)` if the input is `(0.0, 0.0)`
@@ -104,16 +104,27 @@ impl Physics {
 
     /// Only moves self, need to be called in reverse to move `b`
     fn collide(&mut self, b: &Physics, delta: f64) {
-        if (self.collision_size + b.collision_size) > self.dist(&b) {
-            let speed_diff = vector_lenght(vector_diff((b.xvel, b.yvel), (self.xvel, self.yvel)));
-            let s = delta*(speed_diff+64.)*8.;
-            self.xvel *= (-delta*4.).exp();
-            self.yvel *= (-delta*4.).exp();
-            let n = normalize((self.x - b.x, self.y - b.y));
-            self.push((n.0*s*((b.weight.sqrt()+self.weight.sqrt())), n.1*s*((b.weight.sqrt()+self.weight.sqrt()))));
-            self.hp -= (s/16.).min(b.hp);
-            self.push_rot(delta*speed_diff*angle_diff(f64::atan2(b.x - self.x, b.y - self.y).to_degrees(), f64::atan2((b.x + b.xvel) - (self.x + self.xvel), (b.y + b.yvel) - (self.y + self.yvel)).to_degrees())/-1.);
-        }
+        let speed_diff = vector_lenght(vector_diff((b.xvel, b.yvel), (self.xvel, self.yvel)));
+        let s = delta*(speed_diff+64.)*8.;
+        self.xvel *= (-delta*4.).exp();
+        self.yvel *= (-delta*4.).exp();
+        let n = normalize((self.x - b.x, self.y - b.y));
+        self.push((n.0*s*((b.weight.sqrt()+self.weight.sqrt())), n.1*s*((b.weight.sqrt()+self.weight.sqrt()))));
+        self.hp -= (s/16.).min(b.hp);
+        self.push_rot(delta*speed_diff*angle_diff(f64::atan2(b.x - self.x, b.y - self.y).to_degrees(), f64::atan2((b.x + b.xvel) - (self.x + self.xvel), (b.y + b.yvel) - (self.y + self.yvel)).to_degrees())/-1.);
+        
+    }
+
+    /// same as collide, but does not affect HP
+    fn collide_position_only(&mut self, b: &Physics, delta: f64) {
+        let speed_diff = vector_lenght(vector_diff((b.xvel, b.yvel), (self.xvel, self.yvel)));
+        let s = delta*(speed_diff+64.)*8.;
+        self.xvel *= (-delta*4.).exp();
+        self.yvel *= (-delta*4.).exp();
+        let n = normalize((self.x - b.x, self.y - b.y));
+        self.push((n.0*s*((b.weight.sqrt()+self.weight.sqrt())), n.1*s*((b.weight.sqrt()+self.weight.sqrt()))));
+        self.push_rot(delta*speed_diff*angle_diff(f64::atan2(b.x - self.x, b.y - self.y).to_degrees(), f64::atan2((b.x + b.xvel) - (self.x + self.xvel), (b.y + b.yvel) - (self.y + self.yvel)).to_degrees())/-1.);
+        
     }
 
     /// Only checks if the object touch. For the collision to do anything use 'collide'
@@ -393,12 +404,13 @@ pub struct Tank {
     /// How much power the tank can apply to it's rotation movement. Will rotate faster with more power, but slower if it weights more.
     rot_power: f64,
     turrets: Vec<Turret>,
-    bullet_ids: Vec<u128>,
+    bullet_ids: HashSet<u128>,
     texture: String,
     /// id of the source of the last bullet that hit this tank. Useful for assiging the kill to a tank, even if the final damage was for example a collision with a shape.
     last_hit_id: u128,
     /// contains all the upgrading and evolution related variables and functions
-    evolution: Evolution
+    evolution: Evolution,
+    firing_to: (f64, f64),
 }
 impl Default for Tank {
     /// BASIC tank, might not be updated with latest changed to BASIC
@@ -431,9 +443,10 @@ impl Default for Tank {
             power: 30000.,
             rot_power: 450.,
             texture: "basic".to_owned(),
-            bullet_ids: Vec::new(),
+            bullet_ids: HashSet::new(),
             evolution: Evolution::new(),
             last_hit_id: 0,
+            firing_to: (0.,0.)
             
         }
     }
@@ -490,6 +503,7 @@ impl Tank {
         let tg_angle = -f64::atan2(self.physics.x - to.0, self.physics.y - to.1).to_degrees();
         self.physics.push_rot(angle_diff(self.physics.rot, tg_angle).clamp(-25., 25.)*self.rot_power*delta*40.);
         self.physics.rotvel *= (-delta*10.).exp();
+        self.firing_to = to;
     }
 
     /// Fires from all the tank's reloaded turrets
@@ -499,6 +513,7 @@ impl Tank {
             let bullet = t.fire(&self.physics, source_id);
             if bullet.is_some() {
                 let x:u128 = thread_rng().gen();
+                self.bullet_ids.insert(x);
                 bullets.insert(x, bullet.unwrap());
             }
         }
@@ -873,7 +888,11 @@ impl TankAI {
 
                 let tg_pos = (tgp.x, tgp.y);
                 // not the actual target velocity, but a vector of how much in front of the tank to fire to hit it properly, which depends on tg velocity, distance and bullet speed
-                let tg_vel = ((tgp.xvel - con_tankp.xvel) * ((tg_dist/(0.6 * self.bullet_speed)).exp()) / 5.0, (tgp.yvel - con_tankp.yvel) * ((tg_dist/(0.6 * self.bullet_speed)).exp()) / 5.0);
+                let tg_vel = if tanks.get_mut(&id).unwrap().texture == "spawner" || tanks.get_mut(&id).unwrap().texture == "infector" {
+                    (0.,0.)
+                } else {
+                    ((tgp.xvel - con_tankp.xvel) * ((tg_dist/(0.6 * self.bullet_speed)).exp()) / 5.0, (tgp.yvel - con_tankp.yvel) * ((tg_dist/(0.6 * self.bullet_speed)).exp()) / 5.0)
+                };
 
                 // move
                 if self.fighting && (con_tankp.dist(&tgp) > self.tg_range*1.2) {
@@ -1040,7 +1059,6 @@ impl Map {
     fn update_physics(&mut self, delta: f64) {
 
         self.tanks.retain(|_, v| v.physics.speed() <= 50_000.);
-        self.bullets.retain(|_, v| v.physics.speed() <= 50_000.);
         self.shapes.retain(|_, v| v.physics.speed() <= 50_000.);
 
         // spawn shapes
@@ -1149,13 +1167,6 @@ impl Map {
                 o.update(delta);
             }
 
-            for b in self.bullets.iter() {
-                if (-b.1.physics.hp_regen*10. < b.1.physics.hp ) && b.1.texture != "trap"{
-                    println!("{:?}, {}", b.1, self.tanks.get(&b.1.source_tank_id).unwrap().evolution.class);
-                    panic!()
-                }
-            }
-
             // remove <0 hp tanks
             self.tanks.retain(|_, v| v.physics.hp >= 0.);
 
@@ -1190,10 +1201,10 @@ impl Map {
             }
 
 
-            // find bullets that died
+            // find bullets that died, also remove bullet ids from tank source
             let mut bombs_to_remove = Vec::new();
             for (id, bullet) in self.bullets.iter() {
-                if bullet.texture == "bomb" && bullet.physics.hp <= 0. {
+                if (bullet.texture == "bomb"  ||bullet.texture == "trapbomb") && bullet.physics.hp <= 0. {
                     bombs_to_remove.push(id.clone());
                 }
             }
@@ -1201,36 +1212,45 @@ impl Map {
             for id in bombs_to_remove {
                 // handle dead bombs here
                 let bomb = &mut self.bullets.get(&id).unwrap().clone();
-                let combined_iter_mut = self.tanks.iter_mut().map(|tank| &mut tank.1.physics)
+                let combined_iter_mut = self.tanks.iter_mut().filter(|t| *t.0 != id).map(|tank| &mut tank.1.physics)
                 .chain(self.shapes.iter_mut().map(|shape| &mut shape.1.physics))
                 .chain(self.bullets.iter_mut().map(|bullet| &mut bullet.1.physics));
                 for o in combined_iter_mut {
                     if o.dist(&bomb.physics) < bomb.physics.collision_size.powi(2) {
-                        let s = (o.dist(&bomb.physics) - bomb.physics.collision_size.powi(2))*64.;
+                        let s = (o.dist(&bomb.physics) - bomb.physics.collision_size.powi(2))*256.;
                         let dir = normalize(vector_diff((o.x, o.y), (bomb.physics.x, bomb.physics.y)));
                         o.push((s*dir.0, s*dir.1));
                     }
                 }
 
-                for x in 0..30 {
-                    let angle = x as f64*12.;
+                if bomb.physics.hp <= 0. {
+                    for x in 0..(bomb.physics.collision_size as i32) {
+                        let angle = (x*(360/bomb.physics.collision_size as i32)) as f64;
+    
+                        let bomb = &mut self.bullets.get(&id).unwrap().clone();
+                        let size = 16.;
+                        bomb.physics.collision_size = size;
+                        bomb.physics.weight = bomb.physics.weight;
+                        bomb.physics.max_hp = bomb.physics.max_hp;
+                        bomb.physics.hp = bomb.physics.max_hp;
+                        bomb.physics.hp_regen = -bomb.physics.max_hp/2.;
+                        bomb.physics.xvel += angle.to_radians().sin() * size * 72. * (1. + thread_rng().gen::<f64>());
+                        bomb.physics.yvel += angle.to_radians().cos() * size * 72. * (1. + thread_rng().gen::<f64>());
+                        bomb.physics.x += angle.to_radians().sin() * size * 2. * thread_rng().gen::<f64>();
+                        bomb.physics.y += angle.to_radians().cos() * size * 2. * thread_rng().gen::<f64>();
+                        self.bullets.insert(thread_rng().gen(), Bullet {
+                            physics: bomb.physics,
+                            texture: "bullet".to_owned(),
+                            source_tank_id: bomb.source_tank_id,
+                        });
+                    }
+                }
+            }
 
-                    let bomb = &mut self.bullets.get(&id).unwrap().clone();
-                    let size = bomb.physics.collision_size / 2.;
-                    bomb.physics.collision_size = bomb.physics.collision_size/2.5;
-                    bomb.physics.weight = bomb.physics.weight;
-                    bomb.physics.max_hp = bomb.physics.max_hp;
-                    bomb.physics.hp = bomb.physics.max_hp;
-                    bomb.physics.hp_regen = -bomb.physics.max_hp/2.;
-                    bomb.physics.xvel += angle.to_radians().sin() * size * 72. * (1. + thread_rng().gen::<f64>());
-                    bomb.physics.yvel += angle.to_radians().cos() * size * 72. * (1. + thread_rng().gen::<f64>());
-                    bomb.physics.x += angle.to_radians().sin() * size * 2. * thread_rng().gen::<f64>();
-                    bomb.physics.y += angle.to_radians().cos() * size * 2. * thread_rng().gen::<f64>();
-                    self.bullets.insert(thread_rng().gen(), Bullet {
-                        physics: bomb.physics,
-                        texture: "bullet".to_owned(),
-                        source_tank_id: bomb.source_tank_id,
-                    });
+
+            for (id, bullet) in self.bullets.iter() {
+                if self.tanks.contains_key(&bullet.source_tank_id) && bullet.physics.hp <= 0. {
+                    self.tanks.get_mut(&bullet.source_tank_id).unwrap().bullet_ids.remove(id);
                 }
             }
 
@@ -1239,6 +1259,30 @@ impl Map {
             self.shapes.retain(|_, v| v.physics.hp > 0.);
             // remove all dead bullets now
             self.bullets.retain(|_, v| v.physics.hp > 0.);
+
+
+            // DRONES
+
+            // for tank that makes drones
+            for (id, t) in self.tanks.iter().filter(|t| t.1.texture == "spawner" || t.1.texture == "infector")  {
+                // for drone in tank's bulletids
+                for d_id in t.bullet_ids.iter() {
+                    // move drone in direction to tank's firing_to
+                    let d = &mut self.bullets.get_mut(&d_id).unwrap();
+                    let vdiff = vector_diff((d.physics.x, d.physics.y), t.firing_to);
+                    let dir;
+                    if vector_lenght(vdiff) > 128. {
+                        dir = normalize(vector_diff((d.physics.x, d.physics.y), t.firing_to));
+                    } else {
+                        dir = (vdiff.0/128., vdiff.1/128.);
+                    }
+                    d.physics.xvel += dir.0 * delta * 2048.;
+                    d.physics.yvel += dir.1 * delta * 2048.;
+                    d.physics.xvel *= (-delta).exp();
+                    d.physics.yvel *= (-delta).exp();
+                }
+            }
+
             
 
             // just spawned mode
@@ -1299,12 +1343,16 @@ impl Map {
 
                             // disbled collision for bullet with bullet
                             if self.bullets.contains_key(&a) && self.bullets.contains_key(&k) {
-                                // can be used to handle bullets from same source differently
+                                // can be used to handle some bullets differently
 
-                                if self.bullets.get(&a).unwrap().texture == "trap" || self.bullets.get(&k).unwrap().texture == "trap" {
-                                    self.get_physics_mut(&k).unwrap().collide(&ap, delta);                       
-                                    self.get_physics_mut(&a).unwrap().collide(&mut kp, delta);
+                                if self.bullets.get(&a).unwrap().texture == "trap" || self.bullets.get(&k).unwrap().texture == "trap"
+                                || self.bullets.get(&a).unwrap().texture == "trapbomb" || self.bullets.get(&k).unwrap().texture == "trapbomb"
+                                 {
+                                    self.get_physics_mut(&k).unwrap().collide_position_only(&ap, delta);
+                                    self.get_physics_mut(&a).unwrap().collide_position_only(&mut kp, delta);
                                 }
+                            } else if self.tanks.contains_key(&a) && self.tanks.get(&a).unwrap().bullet_ids.contains(&k) || self.tanks.contains_key(&k) && self.tanks.get(&k).unwrap().bullet_ids.contains(&a) {
+                                // DISABLE
                             } else {
                                 // normal collision
                                 self.get_physics_mut(&k).unwrap().collide(&ap, delta);                       
@@ -1354,13 +1402,47 @@ impl Map {
                             // if k is a bullet, and a is a shape
                             // add xp to the source tank, if it exists, and if the shape hp is lees than 0 (it just died)
                             else if self.bullets.contains_key(&k) && self.shapes.contains_key(&a) {
+                                let bullet = &mut &self.bullets.get(&k).unwrap();
                                 if self.tanks.contains_key(&self.bullets.get(&k).unwrap().source_tank_id) && self.shapes.get(&a).unwrap().physics.hp < 0.  {
-                                    self.tanks.get_mut(&self.bullets.get(&k).unwrap().source_tank_id).unwrap().evolution.add_xp(self.shapes.get_mut(&a).unwrap().physics.collision_size.powi(2)*0.01); 
+                                    self.tanks.get_mut(&self.bullets.get(&k).unwrap().source_tank_id).unwrap().evolution.add_xp(self.shapes.get_mut(&a).unwrap().physics.collision_size.powi(2)*0.01);
+
+                                    // infector tank
+                                    if self.tanks.get(&self.bullets.get(&k).unwrap().source_tank_id).unwrap().texture == "infector" && self.shapes.get(&a).unwrap().texture == "triangle" &&
+                                    self.tanks.get_mut(&self.bullets.get(&k).unwrap().source_tank_id).unwrap().bullet_ids.len() < 256 {
+                                        let uuid = thread_rng().gen::<u128>();
+                                        let mut ph = self.shapes.get(&a).unwrap().physics.clone();
+                                        ph.max_hp = (bullet.physics.max_hp * 2.).min(128.);
+                                        ph.hp_regen = -ph.max_hp*0.1;
+                                        ph.hp = ph.max_hp * 2.;
+                                        self.bullets.insert(uuid, Bullet {
+                                            physics: ph,
+                                            source_tank_id: self.bullets.get(&k).unwrap().source_tank_id,
+                                            texture: "drone".to_owned(),
+                                        });
+                                        self.tanks.get_mut(&self.bullets.get(&k).unwrap().source_tank_id).unwrap().bullet_ids.insert(uuid);
+                                    }
                                 }
                             } // other way around
                             else if self.bullets.contains_key(&a) && self.shapes.contains_key(&k) {
                                 if self.tanks.contains_key(&self.bullets.get(&a).unwrap().source_tank_id) && self.shapes.get(&k).unwrap().physics.hp < 0. {
+                                    let bullet = &mut &self.bullets.get(&a).unwrap();
                                     self.tanks.get_mut(&self.bullets.get(&a).unwrap().source_tank_id).unwrap().evolution.add_xp(self.shapes.get_mut(&k).unwrap().physics.collision_size.powi(2)*0.01);
+
+                                    // infector tank
+                                    if self.tanks.get(&self.bullets.get(&a).unwrap().source_tank_id).unwrap().texture == "infector" && self.shapes.get(&k).unwrap().texture == "triangle" &&
+                                    self.tanks.get_mut(&self.bullets.get(&a).unwrap().source_tank_id).unwrap().bullet_ids.len() < 256 {
+                                        let uuid = thread_rng().gen::<u128>();
+                                        let mut ph = self.shapes.get(&k).unwrap().physics.clone();
+                                        ph.max_hp = (bullet.physics.max_hp * 2.).min(128.);
+                                        ph.hp_regen = -ph.max_hp*0.1;
+                                        ph.hp = ph.max_hp * 2.;
+                                        self.bullets.insert(uuid, Bullet {
+                                            physics: ph,
+                                            source_tank_id: self.bullets.get(&a).unwrap().source_tank_id,
+                                            texture: "drone".to_owned(),
+                                        });
+                                        self.tanks.get_mut(&self.bullets.get(&a).unwrap().source_tank_id).unwrap().bullet_ids.insert(uuid);
+                                    }
                                 }
                             }
                         }
@@ -1414,6 +1496,8 @@ fn run() {
     textures.insert("bullet".to_owned(), texture_creator.load_texture("textures/bullet.png").unwrap());
     textures.insert("trap".to_owned(), texture_creator.load_texture("textures/trap.png").unwrap());
     textures.insert("bomb".to_owned(), texture_creator.load_texture("textures/bomb.png").unwrap());
+    textures.insert("trapbomb".to_owned(), texture_creator.load_texture("textures/trap.png").unwrap());
+    textures.insert("drone".to_owned(), texture_creator.load_texture("textures/triangle.png").unwrap());
 
     textures.insert("square".to_owned(), texture_creator.load_texture("textures/square.png").unwrap());
     textures.insert("hexagon".to_owned(), texture_creator.load_texture("textures/hexagon.png").unwrap());
@@ -1421,14 +1505,16 @@ fn run() {
     textures.insert("12gon".to_owned(), texture_creator.load_texture("textures/12gon.png").unwrap());
 
     textures.insert("basic".to_owned(), texture_creator.load_texture("textures/basic.png").unwrap());
-    textures.insert("long".to_owned(), texture_creator.load_texture("textures/long.png").unwrap());
+    textures.insert("sniper".to_owned(), texture_creator.load_texture("textures/sniper.png").unwrap());
+    textures.insert("spawner".to_owned(), texture_creator.load_texture("textures/sniper.png").unwrap());
+    textures.insert("infector".to_owned(), texture_creator.load_texture("textures/sniper.png").unwrap());
     textures.insert("double".to_owned(), texture_creator.load_texture("textures/double.png").unwrap());
     textures.insert("wide".to_owned(), texture_creator.load_texture("textures/wide.png").unwrap());
 
     // Initialize my own things
     let mut map = Map {
-        map_size: (8_000., 8_000.,),
-        shapes_max: 6_000,
+        map_size: (4_000., 4_000.,),
+        shapes_max: 1_000,
         shapes: HashMap::new(),
         tanks: HashMap::new(),
         bullets: HashMap::new(),
@@ -1443,14 +1529,6 @@ fn run() {
         target_tank: playerid,
         viewport_size: (2560, 1440)
     };
-
-    // update the physics a little bit before anything else happens
-    // for x in 0..1000 {
-    //     map.update_physics(0.1);
-    //     if x%500 == 0 {
-    //         println!("loading: {}%", x/50);
-    //     }
-    // }
 
     let mut last_frame_start;
     // How long the last frame took, in micros, 1 millisecond for the first frame
@@ -1504,9 +1582,9 @@ fn run() {
 
         // SPAWN TANKS
 
-        while map.tanks.len() < 50 {
+        while map.tanks.len() < 8 {
             let ai_tank_id = thread_rng().gen::<u128>();
-    
+
             // add AI tank
             // tanks will be network or AI controlled on the server (also player controlled on LAN multiplayer server), and player or AI controlled in singleplayer
             let class = "basic";
@@ -1519,7 +1597,7 @@ fn run() {
             ph.y = thread_rng().gen::<f64>()*map.map_size.1*2. - map.map_size.1;
             // will be clamped to max hp automatically
             ph.hp = 10000.;
-    
+
             let ev = &mut map.tanks.get_mut(&ai_tank_id).unwrap().evolution;
             ev.hp_level = thread_rng().gen_range(0..1);
             ev.regen_level = thread_rng().gen_range(0..1);
@@ -1528,10 +1606,10 @@ fn run() {
             ev.speed_level = thread_rng().gen_range(0..1);
             ev.bulletspeed_level = thread_rng().gen_range(0..1);
             ev.class = class.to_owned();
-    
+
             let tank =&mut map.tanks.get_mut(&ai_tank_id).unwrap();
             Evolution::level_refresh(tank);            
-    
+
             map.tankais.push(TankAI {
                 id: ai_tank_id,
                 range: 3072.,
@@ -1786,15 +1864,15 @@ fn run() {
             map.tanks.iter().map(|t| t.1.evolution.killvalue*2.).collect();
             best_players.sort_by(|a, b| b.partial_cmp(a).unwrap());
             println!("top tank");
-            for t in map.tanks.values() {
-                if t.evolution.killvalue*2. == best_players[0] {
-                    println!("evolution: {:?}", t)
-                }
-            }
+            // for t in map.tanks.values() {
+            //     if t.evolution.killvalue*2. == best_players[0] {
+            //         println!("evolution: {:?}", t)
+            //     }
+            // }
 
             let text = format!(
-                "TOP PLAYERS BY XP EARNED: \n1. {:.0}\n2. {:.0}\n3. {:.0}\n4. {:.0}\n5. {:.0}\n 25.{:.0}",
-                best_players[0], best_players[1], best_players[2], best_players[3], best_players[4], best_players[24]
+                "TOP PLAYERS BY XP EARNED: \n1. {:.0}\n2. {:.0}\n3. {:.0}\n4. {:.0}\n5. {:.0}",
+                best_players[0], best_players[1], best_players[2], best_players[3], best_players[4],
             );
 
             let mut y_offset = 40; // Adjust the Y offset for each line
