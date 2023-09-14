@@ -127,6 +127,15 @@ impl Physics {
         
     }
 
+     /// for mbombs
+     fn stick_to(&mut self, b: &Physics, delta: f64) {
+        let n = normalize((self.x - b.x, self.y - b.y));
+        self.xvel *= (delta * 16.).exp();
+        self.yvel *= (delta * 16.).exp();
+        self.push((n.0 * delta * 65536., n.1 * delta * 65536.));
+        
+    }
+
     /// Only checks if the object touch. For the collision to do anything use 'collide'
     fn collides(&self, b: &Physics) -> bool {
         (self.collision_size + b.collision_size) > self.dist(&b)
@@ -968,12 +977,12 @@ impl TankAI {
             if self.dodge_obstacles {
                 for (bullet, source) in bullets.iter().map(|s| (s.1, s.1.source_tank_id)) {
                     // if the bullet is close (distance increases when the tank is going fast)
-                    if con_tankp.dist(&bullet.physics) < (bullet.physics.collision_size + con_tankp.collision_size + bullet.physics.speed()*1. * if bullet.texture == "bomb" {1024.} else {1.}) && source != id  {
+                    if con_tankp.dist(&bullet.physics) < (bullet.physics.collision_size + con_tankp.collision_size + bullet.physics.speed()*1. * if bullet.texture == "bomb" || bullet.texture == "mbomb" {1024.} else {1.}) && source != id  {
                         let bdist = con_tankp.dist(&bullet.physics);
 
                         // move directly away from the bullet, overriding the move direction determined before
                         let bullet_away_dir = normalize((-(bullet.physics.x + bullet.physics.xvel - con_tankp.x), -(bullet.physics.y + bullet.physics.yvel - con_tankp.y)));
-                        if bullet.texture == "bomb" {
+                        if bullet.texture == "bomb" || bullet.texture == "mbomb" {
                             movedir = (movedir.0 + bullet_away_dir.0*bullet.physics.hp/con_tankp.hp /bdist * 131072., movedir.1 + bullet_away_dir.1*bullet.physics.hp/con_tankp.hp /bdist * 131072.);
                         } else {
                             movedir = (movedir.0 + bullet_away_dir.0*bullet.physics.hp/con_tankp.hp /bdist * 4., movedir.1 + bullet_away_dir.1*bullet.physics.hp/con_tankp.hp /bdist * 4.);
@@ -1204,7 +1213,7 @@ impl Map {
             // find bullets that died, also remove bullet ids from tank source
             let mut bombs_to_remove = Vec::new();
             for (id, bullet) in self.bullets.iter() {
-                if (bullet.texture == "bomb"  ||bullet.texture == "trapbomb") && bullet.physics.hp <= 0. {
+                if (bullet.texture == "bomb"  || bullet.texture == "mbomb"  || bullet.texture == "trapbomb") && bullet.physics.hp <= 0. {
                     bombs_to_remove.push(id.clone());
                 }
             }
@@ -1217,7 +1226,7 @@ impl Map {
                 .chain(self.bullets.iter_mut().map(|bullet| &mut bullet.1.physics));
                 for o in combined_iter_mut {
                     if o.dist(&bomb.physics) < bomb.physics.collision_size.powi(2) {
-                        let s = (o.dist(&bomb.physics) - bomb.physics.collision_size.powi(2))*256.;
+                        let s = (o.dist(&bomb.physics) - bomb.physics.collision_size.powi(2))*64.;
                         let dir = normalize(vector_diff((o.x, o.y), (bomb.physics.x, bomb.physics.y)));
                         o.push((s*dir.0, s*dir.1));
                     }
@@ -1229,18 +1238,18 @@ impl Map {
     
                         let bomb = &mut self.bullets.get(&id).unwrap().clone();
                         let size = 16.;
-                        bomb.physics.collision_size = size;
+                        bomb.physics.collision_size = size*0.5;
                         bomb.physics.weight = bomb.physics.weight;
                         bomb.physics.max_hp = bomb.physics.max_hp;
                         bomb.physics.hp = bomb.physics.max_hp;
-                        bomb.physics.hp_regen = -bomb.physics.max_hp/2.;
-                        bomb.physics.xvel += angle.to_radians().sin() * size * 72. * (1. + thread_rng().gen::<f64>());
-                        bomb.physics.yvel += angle.to_radians().cos() * size * 72. * (1. + thread_rng().gen::<f64>());
+                        bomb.physics.hp_regen = if bomb.texture != "trapbomb" {-bomb.physics.max_hp/2.} else {-bomb.physics.max_hp/20.};
+                        bomb.physics.xvel += angle.to_radians().sin() * size * if bomb.texture != "trapbomb" {72.} else {16.} * (1. + thread_rng().gen::<f64>());
+                        bomb.physics.yvel += angle.to_radians().cos() * size * if bomb.texture != "trapbomb" {72.} else {16.} * (1. + thread_rng().gen::<f64>());
                         bomb.physics.x += angle.to_radians().sin() * size * 2. * thread_rng().gen::<f64>();
                         bomb.physics.y += angle.to_radians().cos() * size * 2. * thread_rng().gen::<f64>();
                         self.bullets.insert(thread_rng().gen(), Bullet {
                             physics: bomb.physics,
-                            texture: "bullet".to_owned(),
+                            texture: if bomb.texture != "trapbomb" {"bullet".to_owned()} else {"trap".to_owned()},
                             source_tank_id: bomb.source_tank_id,
                         });
                     }
@@ -1337,12 +1346,20 @@ impl Map {
                     for a in active.iter() {
                         if self.get_physics(&k).unwrap().collides(self.get_physics(a).unwrap()) {
                             // active object physics
-                            let ap = (self.get_physics(a).unwrap()).clone();
+                            let mut ap = (self.get_physics(&a).unwrap()).clone();
                             // key object physics (the just added object)
                             let mut kp = (self.get_physics(&k).unwrap()).clone();
 
+                            // mbombs
+                            if self.bullets.contains_key(&a) && self.bullets.get(&a).unwrap().texture == "mbomb" {
+                                self.get_physics_mut(&a).unwrap().stick_to(&mut kp, delta*-0.5);
+                            }
+                            else if self.bullets.contains_key(&k) && self.bullets.get(&k).unwrap().texture == "mbomb" {
+                                self.get_physics_mut(&k).unwrap().stick_to(&mut ap, delta*-0.5);
+                            }
+
                             // disbled collision for bullet with bullet
-                            if self.bullets.contains_key(&a) && self.bullets.contains_key(&k) {
+                            else if self.bullets.contains_key(&a) && self.bullets.contains_key(&k) {
                                 // can be used to handle some bullets differently
 
                                 if self.bullets.get(&a).unwrap().texture == "trap" || self.bullets.get(&k).unwrap().texture == "trap"
@@ -1496,6 +1513,7 @@ fn run() {
     textures.insert("bullet".to_owned(), texture_creator.load_texture("textures/bullet.png").unwrap());
     textures.insert("trap".to_owned(), texture_creator.load_texture("textures/trap.png").unwrap());
     textures.insert("bomb".to_owned(), texture_creator.load_texture("textures/bomb.png").unwrap());
+    textures.insert("mbomb".to_owned(), texture_creator.load_texture("textures/bomb.png").unwrap());
     textures.insert("trapbomb".to_owned(), texture_creator.load_texture("textures/trap.png").unwrap());
     textures.insert("drone".to_owned(), texture_creator.load_texture("textures/triangle.png").unwrap());
 
