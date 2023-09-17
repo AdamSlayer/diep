@@ -162,7 +162,7 @@ lazy_static! {
                     },],
                     power: 20000.,
                     rot_power: 400.,
-                    texture: "double".to_owned(),
+                    texture: "triple".to_owned(),
                     ..Default::default()                
                 }, vec![
                 ],
@@ -237,7 +237,7 @@ lazy_static! {
                     ],
                     power: 15000.,
                     rot_power: 400.,
-                    texture: "double".to_owned(),
+                    texture: "cross".to_owned(),
                     ..Default::default()                
                 }, vec![
                 ],
@@ -266,14 +266,14 @@ lazy_static! {
                         projectile_collision_size: 10.,
                         projectile_hp_regen: -2.,
                         projectile_hp: 3.,
-                        reload_time: 0.2,
+                        reload_time: 0.15,
                         inaccuracy: 0.,
                         relative_position: (0.,-85.),
                         ..Default::default()
                     }],
                     power: 10000.,
                     rot_power: 120.,
-                    texture: "basic".to_owned(),
+                    texture: "machine".to_owned(),
                     ..Default::default()                
                 }, vec![
     
@@ -318,6 +318,7 @@ lazy_static! {
                 }, vec![
                     "infector".to_owned(),
                     "anthill".to_owned(),
+                    "trapspawner".to_owned(),
                 ],
                 1000.
             ));
@@ -377,9 +378,9 @@ lazy_static! {
                         projectile_texture: "drone".to_string(),
                         ..Default::default()
                     }],
-                    power: 15000.,
-                    rot_power: 450.,
-                    texture: "spawner".to_owned(),
+                    power: 5000.,
+                    rot_power: 100.,
+                    texture: "anthill".to_owned(),
                     ..Default::default()
                 }, vec![
                     "infector".to_owned(),
@@ -415,8 +416,8 @@ lazy_static! {
                         projectile_texture: "drone".to_string(),
                         ..Default::default()
                     }],
-                    power: 15000.,
-                    rot_power: 450.,
+                    power: 10000.,
+                    rot_power: 200.,
                     texture: "infector".to_owned(),
                     ..Default::default()
                 }, vec![
@@ -456,7 +457,7 @@ lazy_static! {
                     }],
                     power: 25000.,
                     rot_power: 600.,
-                    texture: "wide".to_owned(),
+                    texture: "bomber".to_owned(),
                     ..Default::default()                
                 }, vec![
                     "trapbomber".to_string(),
@@ -495,7 +496,7 @@ lazy_static! {
                     }],
                     power: 25000.,
                     rot_power: 600.,
-                    texture: "wide".to_owned(),
+                    texture: "magnetbomber".to_owned(),
                     ..Default::default()                
                 }, vec![
                     "tribomber".to_string(),
@@ -561,7 +562,7 @@ lazy_static! {
                     ],
                     power: 25000.,
                     rot_power: 600.,
-                    texture: "wide".to_owned(),
+                    texture: "tribomber".to_owned(),
                     ..Default::default()                
                 }, vec![
                 ],
@@ -586,12 +587,12 @@ lazy_static! {
                         hp_regen: 4.,
                     },
                     turrets: vec![Turret {
-                        projectile_impulse: 8_000.,
+                        projectile_impulse: 20_000.,
                         projectile_weight: 100.,
                         projectile_collision_size: 5.,
                         projectile_hp_regen: -5.,
                         projectile_hp: 100.,
-                        reload_time: 0.4,
+                        reload_time: 0.8,
                         inaccuracy: 0.,
                         relative_position: (0.,-65.),
                         projectile_texture: "trap".to_string(),
@@ -599,10 +600,111 @@ lazy_static! {
                     }],
                     power: 40000.,
                     rot_power: 800.,
-                    texture: "basic".to_owned(),
+                    texture: "trapper".to_owned(),
                     ..Default::default()                
                 }, vec![
                     "trapbomber".to_string(),
+                    "trapspawner".to_string(),
+                    "barricade".to_string(),
+                    ],
+                1000.
+            ));
+
+            hash_set.insert("trapspawner".to_string(), (
+                Tank {
+                    physics: Physics {
+                        x: 0.,
+                        y: 0.,
+                        xvel: 0.,
+                        yvel: 0.,
+                        weight: 160.,
+                        rot: 0.,
+                        rotvel: 0.,
+                        collision_size: 55.,
+                        hp: 160.,
+                        max_hp: 160.,
+                        hp_regen: 4.,
+                    },
+                    turrets: vec![Turret {
+                        projectile_impulse: 16_000.,
+                        projectile_weight: 50.,
+                        projectile_collision_size: 4.,
+                        projectile_hp_regen: -3.,
+                        projectile_hp: 50.,
+                        reload_time: 1.0,
+                        inaccuracy: 4.,
+                        relative_position: (0.,0.),
+                        relative_direction: -120.,
+                        projectile_texture: "trap".to_string(),
+                        ..Default::default()
+                    },
+                    Turret {
+                        projectile_impulse: 16_000.,
+                        projectile_weight: 50.,
+                        projectile_collision_size: 4.,
+                        projectile_hp_regen: -3.,
+                        projectile_hp: 50.,
+                        reload_time: 1.0,
+                        inaccuracy: 4.,
+                        relative_position: (0.,0.),
+                        relative_direction: 120.,
+                        projectile_texture: "trap".to_string(),
+                        ..Default::default()
+                    },
+                    // spawner turret
+                    Turret {
+                        projectile_impulse: 1_000.,
+                        projectile_weight: 3.,
+                        projectile_collision_size: 12.,
+                        projectile_hp_regen: -0.5,
+                        projectile_hp: 6.,
+                        reload_time: 1.0,
+                        inaccuracy: 1.,
+                        relative_position: (0.,-60.),
+                        projectile_texture: "drone".to_string(),
+                        ..Default::default()
+                    }],
+                    power: 12000.,
+                    rot_power: 120.,
+                    texture: "trapspawner".to_owned(),
+                    ..Default::default()                
+                }, vec![
+                    ],
+                1000.
+            ));
+
+            hash_set.insert("barricade".to_string(), (
+                Tank {
+                    physics: Physics {
+                        x: 0.,
+                        y: 0.,
+                        xvel: 0.,
+                        yvel: 0.,
+                        weight: 160.,
+                        rot: 0.,
+                        rotvel: 0.,
+                        collision_size: 60.,
+                        hp: 160.,
+                        max_hp: 160.,
+                        hp_regen: 4.,
+                    },
+                    turrets: vec![Turret {
+                        projectile_impulse: 16_000.,
+                        projectile_weight: 50.,
+                        projectile_collision_size: 4.,
+                        projectile_hp_regen: -3.,
+                        projectile_hp: 50.,
+                        reload_time: 0.25,
+                        inaccuracy: 10.,
+                        relative_position: (0.,-65.),
+                        projectile_texture: "trap".to_string(),
+                        ..Default::default()
+                    }],
+                    power: 40000.,
+                    rot_power: 800.,
+                    texture: "barricade".to_owned(),
+                    ..Default::default()                
+                }, vec![
                     ],
                 1000.
             ));
@@ -629,7 +731,7 @@ lazy_static! {
                         projectile_collision_size: 12.,
                         projectile_hp_regen: -10.,
                         projectile_hp: 50.,
-                        reload_time: 1.0,
+                        reload_time: 3.0,
                         inaccuracy: 1.,
                         relative_position: (0.,-80.),
                         projectile_texture: "trapbomb".to_string(),
@@ -637,7 +739,7 @@ lazy_static! {
                     }],
                     power: 35000.,
                     rot_power: 600.,
-                    texture: "wide".to_owned(),
+                    texture: "trapbomber".to_owned(),
                     ..Default::default()                
                 }, vec![],
                 1000.
@@ -737,7 +839,7 @@ lazy_static! {
                     turrets: vec![],
                     power: 25000.,
                     rot_power: 700.,
-                    texture: "basic".to_owned(),
+                    texture: "shotgun".to_owned(),
                     ..Default::default()                
                 }, vec![
     

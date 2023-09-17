@@ -2,6 +2,7 @@ use rand::prelude::*;
 use rand_distr::Distribution;
 use rand_distr::num_traits::Pow;
 use sdl2::event::Event;
+use sdl2::gfx::primitives::DrawRenderer;
 use sdl2::image::LoadTexture;
 use sdl2::keyboard::Keycode;
 use sdl2::libc::time;
@@ -12,8 +13,18 @@ use sdl2::render::{Canvas, Texture, TextureCreator};
 use sdl2::video::Window;
 use tank_tree::EVOLUTION_TREE;
 use std::collections::{HashMap, HashSet};
+use std::fs;
 use std::time::{Instant, self};
 mod tank_tree;
+
+const GAMEMODE: Gamemode = Gamemode::FFA;
+
+#[derive(PartialEq, Eq)]
+enum Gamemode {
+    FFA,
+    Survival,
+
+}
 
 /// From A to B, in radians
 fn angle_diff(a: f64, b: f64) -> f64 {
@@ -296,7 +307,7 @@ struct Evolution {
 impl Evolution {
     fn new() -> Self {
         Evolution {
-            xp: 100000.,
+            xp: 0.,
             class: "basic".to_string(),
             hp_level: 0,
             regen_level: 0,
@@ -462,8 +473,8 @@ impl Default for Tank {
 }
 impl Tank {
     fn render(&self, canvas: &mut Canvas<Window>, camera: &Camera, textures: &HashMap<String, Texture>) {
-        let rendersize = (self.physics.collision_size*4.*camera.zoom*((camera.viewport_size.0.pow(2)+camera.viewport_size.1.pow(2)) as f64).sqrt()/1024.) as u32;
-        let texture = textures.get(&self.texture).unwrap();
+        let rendersize = (self.physics.collision_size*8.*camera.zoom*((camera.viewport_size.0.pow(2)+camera.viewport_size.1.pow(2)) as f64).sqrt()/1024.) as u32;
+        let texture = textures.get(&self.texture).expect(&format!{"failed to load texture: {}", &self.texture});
         let tank_screen_pos = camera.to_screen_coords((self.physics.x, self.physics.y));
 
         canvas.copy_ex(
@@ -475,6 +486,8 @@ impl Tank {
             self.physics.rot, // set rotation
             Point::from((rendersize as i32 / 2, rendersize as i32 / 2)), // set center of rotation, in screen coordinates (not texture coordinates)
             false, false).unwrap();
+
+        canvas.filled_circle(tank_screen_pos.0 as i16, tank_screen_pos.1 as i16, rendersize as i16/8, Color::RGB(0, 0, 255)).unwrap();
         
         // render health bar
         if self.physics.hp < self.physics.max_hp {
@@ -897,7 +910,7 @@ impl TankAI {
 
                 let tg_pos = (tgp.x, tgp.y);
                 // not the actual target velocity, but a vector of how much in front of the tank to fire to hit it properly, which depends on tg velocity, distance and bullet speed
-                let tg_vel = if tanks.get_mut(&id).unwrap().texture == "spawner" || tanks.get_mut(&id).unwrap().texture == "infector" {
+                let tg_vel = if tanks.get_mut(&id).unwrap().texture == "spawner" || tanks.get_mut(&id).unwrap().texture == "infector"  || tanks.get_mut(&id).unwrap().texture == "anthill"  || tanks.get_mut(&id).unwrap().texture == "trapspawner" {
                     (0.,0.)
                 } else {
                     ((tgp.xvel - con_tankp.xvel) * ((tg_dist/(0.6 * self.bullet_speed)).exp()) / 5.0, (tgp.yvel - con_tankp.yvel) * ((tg_dist/(0.6 * self.bullet_speed)).exp()) / 5.0)
@@ -1070,15 +1083,15 @@ impl Map {
         self.tanks.retain(|_, v| v.physics.speed() <= 50_000.);
         self.shapes.retain(|_, v| v.physics.speed() <= 50_000.);
 
-        // spawn shapes
-        for _ in 0..(if thread_rng().gen_bool((delta * 4.).clamp(0., 1.)) {1} else {0} * (self.shapes_max - self.shapes.len()) / 64) {
+        // spawn shapes, max 16 per frame
+        for _ in 0..((self.shapes_max as f64 - self.shapes.len() as f64) * delta).clamp(0.,16.) as usize {
 
             let (x, y) = (thread_rng().gen_range(-self.map_size.0..self.map_size.0), thread_rng().gen_range(-self.map_size.0..self.map_size.0));
 
             // from 0.8 to 1.2, squared 0.64 to 1.44
             let mut size = thread_rng().gen::<f64>() * 0.4 + 0.8;
             let mut is_hexagon = thread_rng().gen_bool(0.1);
-            let is_triangle = thread_rng().gen_bool(0.4);
+            let is_triangle = thread_rng().gen_bool(0.5);
             let mut is_12gon = false;
 
             if is_hexagon || ((self.shapes_max - self.shapes.len()) > (self.shapes_max as f64 * 0.1) as usize) {
@@ -1176,6 +1189,14 @@ impl Map {
                 o.update(delta);
             }
 
+            // traps slow down 4x faster
+            for (id, b) in self.bullets.iter_mut() {
+                if b.texture == "trap" || b.texture == "trapbomb" {
+                    b.physics.xvel *= (-delta * 1.5).exp();
+                    b.physics.yvel *= (-delta * 1.5).exp();
+                }
+            }
+
             // remove <0 hp tanks
             self.tanks.retain(|_, v| v.physics.hp >= 0.);
 
@@ -1247,11 +1268,16 @@ impl Map {
                         bomb.physics.yvel += angle.to_radians().cos() * size * if bomb.texture != "trapbomb" {72.} else {16.} * (1. + thread_rng().gen::<f64>());
                         bomb.physics.x += angle.to_radians().sin() * size * 2. * thread_rng().gen::<f64>();
                         bomb.physics.y += angle.to_radians().cos() * size * 2. * thread_rng().gen::<f64>();
-                        self.bullets.insert(thread_rng().gen(), Bullet {
+
+                        let id = thread_rng().gen();
+                        self.bullets.insert(id, Bullet {
                             physics: bomb.physics,
                             texture: if bomb.texture != "trapbomb" {"bullet".to_owned()} else {"trap".to_owned()},
                             source_tank_id: bomb.source_tank_id,
                         });
+                        if self.tanks.contains_key(&bomb.source_tank_id) {
+                            self.tanks.get_mut(&bomb.source_tank_id).unwrap().bullet_ids.insert(id);
+                        }
                     }
                 }
             }
@@ -1273,22 +1299,24 @@ impl Map {
             // DRONES
 
             // for tank that makes drones
-            for (id, t) in self.tanks.iter().filter(|t| t.1.texture == "spawner" || t.1.texture == "infector")  {
+            for (id, t) in self.tanks.iter().filter(|t| t.1.texture == "spawner" || t.1.texture == "infector" || t.1.texture == "anthill" || t.1.texture == "trapspawner")  {
                 // for drone in tank's bulletids
                 for d_id in t.bullet_ids.iter() {
                     // move drone in direction to tank's firing_to
                     let d = &mut self.bullets.get_mut(&d_id).unwrap();
-                    let vdiff = vector_diff((d.physics.x, d.physics.y), t.firing_to);
-                    let dir;
-                    if vector_lenght(vdiff) > 128. {
-                        dir = normalize(vector_diff((d.physics.x, d.physics.y), t.firing_to));
-                    } else {
-                        dir = (vdiff.0/128., vdiff.1/128.);
+                    if d.texture == "drone" {
+                        let vdiff = vector_diff((d.physics.x, d.physics.y), t.firing_to);
+                        let dir;
+                        if vector_lenght(vdiff) > 128. {
+                            dir = normalize(vector_diff((d.physics.x, d.physics.y), t.firing_to));
+                        } else {
+                            dir = (vdiff.0/128., vdiff.1/128.);
+                        }
+                        d.physics.xvel += dir.0 * delta * 2048.;
+                        d.physics.yvel += dir.1 * delta * 2048.;
+                        d.physics.xvel *= (-delta).exp();
+                        d.physics.yvel *= (-delta).exp();
                     }
-                    d.physics.xvel += dir.0 * delta * 2048.;
-                    d.physics.yvel += dir.1 * delta * 2048.;
-                    d.physics.xvel *= (-delta).exp();
-                    d.physics.yvel *= (-delta).exp();
                 }
             }
 
@@ -1506,10 +1534,19 @@ fn run() {
     // Initialize other libraries. So far only the rand crate
     let mut rng = rand::thread_rng();
 
+
     // load textures. will be moved to its own function in the future
     let texture_creator = canvas.texture_creator();
     // HashMap of all the textures used in the game. Later will read all textures form the textures folder and add them to the hashmap by the filename without the extension
     let mut textures: HashMap<String, Texture> = HashMap::new();
+
+    let paths = fs::read_dir("./svg/").unwrap();
+    for path in paths {
+        let path = path.unwrap().path().to_str().unwrap().to_string();
+        println!("{}", path[6..path.len()-4].to_string());
+        textures.insert(path[6..path.len()-4].to_string(), texture_creator.load_texture(path).unwrap());
+    }
+    
     textures.insert("bullet".to_owned(), texture_creator.load_texture("textures/bullet.png").unwrap());
     textures.insert("trap".to_owned(), texture_creator.load_texture("textures/trap.png").unwrap());
     textures.insert("bomb".to_owned(), texture_creator.load_texture("textures/bomb.png").unwrap());
@@ -1522,17 +1559,13 @@ fn run() {
     textures.insert("triangle".to_owned(), texture_creator.load_texture("textures/triangle.png").unwrap());
     textures.insert("12gon".to_owned(), texture_creator.load_texture("textures/12gon.png").unwrap());
 
-    textures.insert("basic".to_owned(), texture_creator.load_texture("textures/basic.png").unwrap());
-    textures.insert("sniper".to_owned(), texture_creator.load_texture("textures/sniper.png").unwrap());
-    textures.insert("spawner".to_owned(), texture_creator.load_texture("textures/sniper.png").unwrap());
-    textures.insert("infector".to_owned(), texture_creator.load_texture("textures/sniper.png").unwrap());
-    textures.insert("double".to_owned(), texture_creator.load_texture("textures/double.png").unwrap());
-    textures.insert("wide".to_owned(), texture_creator.load_texture("textures/wide.png").unwrap());
+    // wide not yet done
+    textures.insert("wide".to_owned(), texture_creator.load_texture("svg/basic.svg").unwrap());
 
     // Initialize my own things
     let mut map = Map {
-        map_size: (4_000., 4_000.,),
-        shapes_max: 1_000,
+        map_size: (10_000., 10_000.,),
+        shapes_max: 0,
         shapes: HashMap::new(),
         tanks: HashMap::new(),
         bullets: HashMap::new(),
@@ -1600,7 +1633,7 @@ fn run() {
 
         // SPAWN TANKS
 
-        while map.tanks.len() < 8 {
+        while map.tanks.len() < 100 && (GAMEMODE == Gamemode::FFA || delta == 0.01 ) {
             let ai_tank_id = thread_rng().gen::<u128>();
 
             // add AI tank
@@ -1887,6 +1920,7 @@ fn run() {
             //         println!("evolution: {:?}", t)
             //     }
             // }
+            best_players.resize(5, 0.);
 
             let text = format!(
                 "TOP PLAYERS BY XP EARNED: \n1. {:.0}\n2. {:.0}\n3. {:.0}\n4. {:.0}\n5. {:.0}",
@@ -1926,10 +1960,20 @@ fn run() {
         // the game will slow down at below 30 fps
         delta = Instant::now().duration_since(last_frame_start).as_secs_f64().min(0.033333);
         if delta > 0.02 {
-            println!("low fps: {}", 1./delta);
+            println!("low fps: {:.0}", 1./delta);
         }
 
         // TEST PRINTS
-        // println!("fps: {:.0}", 1./delta);
+        println!("fps: {:.0}", 1./delta);
+
+        // gamemode stuff
+
+        // Survival map gets smaller
+        if GAMEMODE == Gamemode::Survival {
+            map.map_size.0 -= (delta * 16.).min(map.map_size.0*delta/128.);
+            map.map_size.1 -= (delta * 16.).min(map.map_size.1*delta/128.);
+        }
+
+        map.shapes_max = ((map.map_size.0 * map.map_size.1) / 16384.) as usize;
     }
 }
