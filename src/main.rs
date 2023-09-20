@@ -1,3 +1,4 @@
+use network::run_network;
 use rand::prelude::*;
 use rand_distr::Distribution;
 use rand_distr::num_traits::Pow;
@@ -13,9 +14,15 @@ use sdl2::render::{Canvas, Texture, TextureCreator};
 use sdl2::video::Window;
 use tank_tree::EVOLUTION_TREE;
 use std::collections::{HashMap, HashSet};
-use std::fs;
+use std::io::{Read, Write};
+use std::sync::mpsc;
+use std::{fs, thread};
+use std::net::{TcpListener, TcpStream};
 use std::time::{Instant, self};
+use std::error::Error;
+
 mod tank_tree;
+mod network;
 
 const GAMEMODE: Gamemode = Gamemode::FFA;
 
@@ -307,7 +314,7 @@ struct Evolution {
 impl Evolution {
     fn new() -> Self {
         Evolution {
-            xp: 0.,
+            xp: 10000.,
             class: "basic".to_string(),
             hp_level: 0,
             regen_level: 0,
@@ -367,6 +374,7 @@ impl Evolution {
 
         // set all the upgradable values to default for the class
         tank.physics.max_hp = default_tank.physics.max_hp;
+        tank.physics.collision_size = default_tank.physics.collision_size;
         tank.physics.hp_regen = default_tank.physics.hp_regen;
         tank.power = default_tank.power;
         tank.rot_power = default_tank.rot_power;
@@ -380,6 +388,7 @@ impl Evolution {
 
         for l in 0..tank.evolution.hp_level.min(10) {
             tank.physics.max_hp *= 1. + 0.15 * (1.6-0.1*l as f64);
+            tank.physics.collision_size *= 1. + 0.01 * (1.6-0.1*l as f64);
         }
     
         for l in 0..tank.evolution.regen_level.min(10) {
@@ -487,7 +496,7 @@ impl Tank {
             Point::from((rendersize as i32 / 2, rendersize as i32 / 2)), // set center of rotation, in screen coordinates (not texture coordinates)
             false, false).unwrap();
 
-        canvas.filled_circle(tank_screen_pos.0 as i16, tank_screen_pos.1 as i16, rendersize as i16/8, Color::RGB(0, 0, 255)).unwrap();
+        canvas.filled_circle(tank_screen_pos.0 as i16, tank_screen_pos.1 as i16, (rendersize as f64/8.).ceil() as i16, Color::RGB(0, 0, 255)).unwrap();
         
         // render health bar
         if self.physics.hp < self.physics.max_hp {
@@ -1128,7 +1137,7 @@ impl Map {
                             30. * size.powi(2)
                         }
                     } else if is_triangle{
-                        3.3 * size.powi(2)
+                        2.0 * size.powi(2)
                     } else {
                         10. * size.powi(2)
                     },
@@ -1141,7 +1150,7 @@ impl Map {
                             0.15 * size.powi(2)
                         }
                     } else if is_triangle{
-                        2.5 * size.powi(2)
+                        3. * size.powi(2)
                     } else {
                         0.5 * size.powi(2)
                     },
@@ -1392,6 +1401,7 @@ impl Map {
 
                                 if self.bullets.get(&a).unwrap().texture == "trap" || self.bullets.get(&k).unwrap().texture == "trap"
                                 || self.bullets.get(&a).unwrap().texture == "trapbomb" || self.bullets.get(&k).unwrap().texture == "trapbomb"
+                                || self.bullets.get(&a).unwrap().texture == "bomb" || self.bullets.get(&k).unwrap().texture == "bomb"
                                  {
                                     self.get_physics_mut(&k).unwrap().collide_position_only(&ap, delta);
                                     self.get_physics_mut(&a).unwrap().collide_position_only(&mut kp, delta);
@@ -1510,11 +1520,10 @@ impl Map {
 }
 
 fn main() {
-    run();
-}
-
-fn run() {
     // INIT
+
+    // spawn network thread
+    thread::spawn(|| run_network());
 
     // Initialize sld2 related things
     let sdl_context = sdl2::init().unwrap();
@@ -1964,7 +1973,7 @@ fn run() {
         }
 
         // TEST PRINTS
-        println!("fps: {:.0}", 1./delta);
+        // println!("fps: {:.0}", 1./delta);
 
         // gamemode stuff
 
